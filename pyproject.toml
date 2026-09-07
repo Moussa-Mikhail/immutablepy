@@ -1,0 +1,82 @@
+[project]
+name = "immutablepy"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "ty>=0.0.74",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+    "pyright>=1.1.407",
+    "pytest>=9.1.1",
+    "refurb>=2.3.1",
+    "ruff>=0.16.4",
+    "ty>=0.0.74",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
+
+[tool.ruff.lint]
+select = ["ALL"]
+external = ["FURB"]
+
+ignore = [
+    "COM812", # Redundant, ruff format enforces this.
+    "CPY001",
+    "D203",
+    "D212",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/tests/**" = [
+    "ANN",   # fixtures intentionally exercise loosely-annotated / edge-case signatures
+    "CPY001", # no copyright header required in tests
+    "D",     # tests and fixtures don't need docstrings
+    "INP001", # tests dir is not a distributed package
+    "S101",  # assert is how pytest tests assert
+    "S603",  # subprocess calls with a fixed, non-user-controlled argv
+]
+
+[tool.ty]
+environment.python-version = "3.13"
+
+[tool.ty.rules]
+all = "error"
+
+[tool.mypy]
+mypy_path = "src"
+python_version = "3.13"

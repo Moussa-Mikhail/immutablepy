@@ -1,0 +1,6 @@
+# Not a real project config -- exists only so `ty --project` can be pointed
+# at this directory to check fixture files against the intersection-based
+# internal stub, the same way the tool's bundled `ty` will be configured.
+[environment]
+python-version = "3.13"
+extra-paths = ["../../../stubs/internal"]
