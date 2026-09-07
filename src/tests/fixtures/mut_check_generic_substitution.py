@@ -1,4 +1,4 @@
-"""Only meaningful under the tool's private, intersection-based `ty` view.
+"""Only meaningful under `mut_check`'s private, intersection-based view.
 
 Intersections must survive generic substitution: a field declared `Mut[T]`
 on a generic class, specialized with a plain type argument, must still

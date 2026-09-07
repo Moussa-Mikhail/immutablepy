@@ -1,4 +1,4 @@
-"""Only meaningful under the tool's private, intersection-based `ty` view.
+"""Only meaningful under `mut_check`'s private, intersection-based view.
 
 Pre-declared `with`-statement target, per CLAUDE.md's "no post-assignment
 annotation" pattern. Same message-shape gap as the for-loop case: no

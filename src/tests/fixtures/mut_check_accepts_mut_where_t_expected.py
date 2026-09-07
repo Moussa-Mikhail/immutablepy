@@ -1,4 +1,4 @@
-"""Only meaningful under the tool's private, intersection-based `ty` view.
+"""Only meaningful under `mut_check`'s private, intersection-based view.
 
 The forward direction of `Mut[T] <: T`: a `Mut[T]` value must be accepted
 anywhere plain `T` is expected, natively, with no filter needed -- `T &

@@ -1,4 +1,4 @@
-"""Only meaningful under the tool's private, intersection-based `ty` view.
+"""Only meaningful under `mut_check`'s private, intersection-based view.
 
 Pre-declared unpacking target, per CLAUDE.md's "no post-assignment
 annotation" pattern. Unlike the for-loop/with cases, this one's message

@@ -1,4 +1,4 @@
-"""Only meaningful under the tool's private, intersection-based `ty` view.
+"""Only meaningful under `mut_check`'s private, intersection-based view.
 
 Must be rejected: `Mut[list[Mut[User]]]` requires elements to carry
 `MutMarker` too -- appending a plain `User` (missing the element-level

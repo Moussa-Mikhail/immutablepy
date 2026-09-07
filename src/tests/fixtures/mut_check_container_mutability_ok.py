@@ -1,4 +1,4 @@
-"""Only meaningful under the tool's private, intersection-based `ty` view.
+"""Only meaningful under `mut_check`'s private, intersection-based view.
 
 Both must be accepted with zero errors -- the compositional container
 mutability distinction from CLAUDE.md, positive cases:

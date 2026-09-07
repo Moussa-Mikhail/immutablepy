@@ -1,0 +1,7 @@
+# Points ty at the intersection-based internal stub (stubs/internal/) instead
+# of the plain public immutablepy module. This is how mut_check gets ty to
+# natively enforce Mut[T] <: T -- see CLAUDE.md's "Private ty backend" and
+# "Intersection types" sections.
+[environment]
+python-version = "3.13"
+extra-paths = ["../../../stubs/internal"]
