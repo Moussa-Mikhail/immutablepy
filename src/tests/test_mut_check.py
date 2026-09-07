@@ -21,6 +21,8 @@ PREDECLARED_UNPACKING = FIXTURES_DIR / "mut_check_predeclared_unpacking.py"
 CONTAINER_MUTABILITY_OK = FIXTURES_DIR / "mut_check_container_mutability_ok.py"
 CONTAINER_MUTABILITY_BAD = FIXTURES_DIR / "mut_check_container_mutability_bad.py"
 PROTOCOL_CONFORMANCE_BAD = FIXTURES_DIR / "mut_check_protocol_conformance_bad.py"
+SELF_REQUIRES_MUT_OK = FIXTURES_DIR / "mut_check_self_requires_mut_ok.py"
+SELF_REQUIRES_MUT_BAD = FIXTURES_DIR / "mut_check_self_requires_mut_bad.py"
 
 MUT_MARKER_EXPLANATION = "not assignable to element `MutMarker`"
 
@@ -122,3 +124,24 @@ def test_protocol_conformance_catches_mut_mismatch() -> None:
     assert result.returncode != 0
     assert "not assignable to protocol `HasValue`" in result.stdout
     assert "protocol member `value` is incompatible" in result.stdout
+
+
+def test_self_requires_mut_is_accepted_on_mut_receiver() -> None:
+    """Control case: a `self: Mut[Self]` method called on a `Mut[...]` receiver
+    must be accepted -- the receiver carries `MutMarker`.
+    """
+    result = check(SELF_REQUIRES_MUT_OK)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_self_requires_mut_is_rejected_on_plain_receiver() -> None:
+    """A method declared `self: Mut[Self]` must reject being called on a plain
+    (non-`Mut`) receiver -- this is what makes `Mut[Self]` actually gate mutating
+    methods, not just document them.
+    """
+    result = check(SELF_REQUIRES_MUT_BAD)
+
+    assert result.returncode != 0
+    assert MUT_MARKER_EXPLANATION in result.stdout
+    assert "Counter & MutMarker" in result.stdout
