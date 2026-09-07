@@ -1,5 +1,5 @@
 """
-Command-line entry point for the `mut-check` script.
+Command-line entry point for the `immut` script.
 
 Uses an explicit `check` subcommand, matching `ruff check`/`ty check`, since
 CLAUDE.md already commits to a second, fundamentally different mode later
@@ -12,11 +12,11 @@ import sys
 
 from mut_check import check as run_check
 
-_USAGE = "usage: mut-check check <path> [<path> ...]"
+_USAGE = "usage: immut check <path> [<path> ...]"
 
 
 def main() -> int:
-    """Dispatch the `mut-check` subcommand given on the command line."""
+    """Dispatch the `immut` subcommand given on the command line."""
     match sys.argv[1:]:
         case ["check", *paths] if paths:
             result = run_check(*paths)

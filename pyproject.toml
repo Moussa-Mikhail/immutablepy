@@ -7,7 +7,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mut-check = "mut_check.cli:main"
+immut = "mut_check.cli:main"
 
 [build-system]
 requires = ["hatchling"]

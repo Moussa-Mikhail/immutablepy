@@ -1,4 +1,4 @@
-"""`mut-check` requires an explicit `check` subcommand, matching `ruff check`/`ty check`."""
+"""`immut` requires an explicit `check` subcommand, matching `ruff check`/`ty check`."""
 
 import subprocess
 import sys
@@ -29,11 +29,11 @@ def test_bare_invocation_prints_usage_and_fails() -> None:
     result = run_cli()
 
     assert result.returncode == 2
-    assert "usage: mut-check check" in result.stderr
+    assert "usage: immut check" in result.stderr
 
 
 def test_unknown_subcommand_prints_usage_and_fails() -> None:
     result = run_cli("frobnicate", str(FIXTURE))
 
     assert result.returncode == 2
-    assert "usage: mut-check check" in result.stderr
+    assert "usage: immut check" in result.stderr
