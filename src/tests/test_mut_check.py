@@ -16,6 +16,7 @@ ACCEPTS_MUT_WHERE_T_EXPECTED = FIXTURES_DIR / "mut_check_accepts_mut_where_t_exp
 GENERIC_SUBSTITUTION = FIXTURES_DIR / "mut_check_generic_substitution.py"
 CONSTRUCTION_LITERAL = FIXTURES_DIR / "mut_check_construction_literal.py"
 PREDECLARED_FOR_LOOP = FIXTURES_DIR / "mut_check_predeclared_for_loop.py"
+FOR_LOOP_READ_ONLY = FIXTURES_DIR / "mut_check_for_loop_read_only_needs_no_mut.py"
 PREDECLARED_WITH = FIXTURES_DIR / "mut_check_predeclared_with.py"
 PREDECLARED_UNPACKING = FIXTURES_DIR / "mut_check_predeclared_unpacking.py"
 CONTAINER_MUTABILITY_OK = FIXTURES_DIR / "mut_check_container_mutability_ok.py"
@@ -58,16 +59,29 @@ def test_construction_literal_produces_marker_explanation() -> None:
     assert "list[int] & MutMarker" in result.stdout
 
 
+def test_for_loop_reading_only_needs_no_mut() -> None:
+    """Control case: a for-loop that only reads its target needs no `Mut[T]`
+    pre-declaration at all -- each iteration's binding is effectively fresh,
+    like the construction exemption, not a reassignment needing permission.
+    """
+    result = check(FOR_LOOP_READ_ONLY)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_predeclared_for_loop_lacks_marker_explanation() -> None:
-    """Known gap: unlike plain assignment, the for-loop target's message never
-    mentions `MutMarker` -- confirmed by inspecting the checker's diagnostics
-    directly, not just its default rendering. A filter matching only on the
-    `MutMarker` substring misses this.
+    """Pre-declaring `Mut[int]` is only justified here because the loop body
+    reassigns `i` (`i += 1`) -- see test_for_loop_reading_only_needs_no_mut for
+    the case where it isn't needed. Known gap: unlike plain assignment, neither
+    the implicit per-iteration binding nor the augmented assignment mentions
+    `MutMarker` in its message -- confirmed by inspecting the checker's
+    diagnostics directly, not just its default rendering. A filter matching
+    only on the `MutMarker` substring misses both.
     """
     result = check(PREDECLARED_FOR_LOOP)
 
     assert result.returncode != 0
-    assert "is not assignable to `Mut[int]`" in result.stdout
+    assert result.stdout.count("is not assignable to `Mut[int]`") == 2
     assert MUT_MARKER_EXPLANATION not in result.stdout
     assert "int & MutMarker" in result.stdout  # from reveal_type, not the error itself
 

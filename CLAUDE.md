@@ -159,6 +159,16 @@ confirms the declared `Mut` type is respected in each case (confirmed directly).
 
 Unpacking without pre-declaration produces immutable bindings by default.
 
+For loops specifically: pre-declaring `Mut[T]` is only required if the loop body
+reassigns or mutates the target (`i += 1`, `i.append(...)`, etc.) — each iteration's
+implicit binding is effectively fresh, the same construction exemption as any other
+new value, not a reassignment needing permission. A loop that only reads its target
+(`for i in range(5): print(i)`) needs no `Mut` at all (confirmed directly). This
+distinction is invisible to `ty` itself — it flags the implicit per-iteration binding
+against a `Mut[T]`-declared target the same way regardless of what the body does —
+so it's enforced by whether the fixture/code pre-declares `Mut` in the first place,
+not by anything `ty` decides.
+
 ### Comprehensions are exempt
 
 Comprehension variables are scoped to the comprehension (Python 3, PEP 289) — no

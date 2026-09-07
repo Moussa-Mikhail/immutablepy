@@ -78,8 +78,10 @@ ignore = [
     "D",     # tests and fixtures don't need docstrings
     "INP001", # tests dir is not a distributed package
     "PLR2004", # exit codes/counts as literals are clearer than named constants here
+    "PLW2901", # fixtures deliberately exercise for-loop-variable reassignment
     "S101",  # assert is how pytest tests assert
     "S603",  # subprocess calls with a fixed, non-user-controlled argv
+    "T201",  # fixtures use print to exercise ordinary reads, not real diagnostics
 ]
 
 [tool.ty]
