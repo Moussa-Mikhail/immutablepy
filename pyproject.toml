@@ -77,6 +77,7 @@ ignore = [
     "CPY001", # no copyright header required in tests
     "D",     # tests and fixtures don't need docstrings
     "INP001", # tests dir is not a distributed package
+    "PLR2004", # exit codes/counts as literals are clearer than named constants here
     "S101",  # assert is how pytest tests assert
     "S603",  # subprocess calls with a fixed, non-user-controlled argv
 ]
