@@ -7,23 +7,16 @@ CLAUDE.md already commits to a second, fundamentally different mode later
 same relationship as `ty check` vs `ty server`. Making `check` explicit now
 avoids a breaking change to add that second mode later.
 
-Renders `mut_check.check`'s structured `Diagnostic`s as plain readable text
-for a terminal -- this is the CLI's own presentation, not `ty`'s raw output
-shape, so a future `immut server` (LSP) can render the exact same
-diagnostics as `publishDiagnostics` JSON instead without this module
-needing to change at all.
+Prints `mut_check.check`'s surviving diagnostics using `ty`'s own verbatim
+text (`Diagnostic.text`), plus a matching trailer, so `immut check`'s output
+looks exactly like `ty check`'s -- filtered false positives just aren't there.
 """
 
 import sys
 
-from mut_check import Diagnostic, check
+from mut_check import check
 
 _USAGE = "usage: immut check <path> [<path> ...]"
-
-
-def _render(diagnostic: Diagnostic) -> str:
-    location = f"{diagnostic.file}:{diagnostic.line}:{diagnostic.col}"
-    return f"{location}: {diagnostic.severity}[{diagnostic.code}]: {diagnostic.message}"
 
 
 def main() -> int:
@@ -31,8 +24,12 @@ def main() -> int:
     match sys.argv[1:]:
         case ["check", *paths] if paths:
             diagnostics = check(*paths)
-            for diagnostic in diagnostics:
-                sys.stdout.write(_render(diagnostic) + "\n")
+            if not diagnostics:
+                sys.stdout.write("All checks passed!\n")
+                return 0
+            noun = "diagnostic" if len(diagnostics) == 1 else "diagnostics"
+            sys.stdout.write("\n\n".join(d.text for d in diagnostics))
+            sys.stdout.write(f"\n\nFound {len(diagnostics)} {noun}\n")
             return 1 if any(d.is_blocking() for d in diagnostics) else 0
         case _:
             sys.stderr.write(_USAGE + "\n")

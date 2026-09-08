@@ -44,7 +44,7 @@ def _literal_assignment_locations(source: str) -> set[tuple[int, int]]:
 def _is_literal_assignment_false_positive(diagnostic: Diagnostic, literal_locations: _LocationsByFile) -> bool:
     if diagnostic.code != "invalid-assignment":
         return False
-    if not _ASSIGNMENT_MESSAGE.search(diagnostic.message):
+    if not _ASSIGNMENT_MESSAGE.search(diagnostic.text):
         return False
     locations = literal_locations.get(str(diagnostic.file))
     return locations is not None and (diagnostic.line, diagnostic.col) in locations

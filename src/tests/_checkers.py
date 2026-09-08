@@ -32,7 +32,7 @@ def run_checker(checker_args: list[str], fixture: Path) -> CompletedProcess[str]
 
 def diagnostics_text(diagnostics: Sequence[Diagnostic]) -> str:
     """Join diagnostics into one searchable block, for substring assertions."""
-    return "\n".join(f"{d.file}:{d.line}:{d.col}: {d.severity}[{d.code}]: {d.message}" for d in diagnostics)
+    return "\n\n".join(d.text for d in diagnostics)
 
 
 def is_clean(diagnostics: Sequence[Diagnostic]) -> bool:

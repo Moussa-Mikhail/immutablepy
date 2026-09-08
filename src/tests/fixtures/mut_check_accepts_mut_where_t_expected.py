@@ -8,7 +8,7 @@ MutMarker` is structurally a subtype of `T`.
 from immutablepy import Mut
 
 
-def f(x: int) -> None: ...
+def f(_x: int) -> None: ...
 
 
 def g(y: Mut[int]) -> None:

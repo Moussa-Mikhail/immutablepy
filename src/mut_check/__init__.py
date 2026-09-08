@@ -7,11 +7,13 @@ resolve `immutablepy` to the intersection-based internal stub
 see. `ty` is an implementation detail of `mut_check._ty`; callers of `check`
 shouldn't need to know it's `ty` underneath.
 
-`check` returns structured `Diagnostic`s rather than raw text, so the same
-result can drive multiple frontends -- today a CLI (`immut check`,
-human-readable text), eventually an LSP server (per CLAUDE.md's "Private ty
-backend", `publishDiagnostics` JSON) -- without either needing to parse the
-other's output shape.
+`check` returns structured `Diagnostic`s -- `severity`/`code`/`file`/`line`/
+`col` for deciding what to keep (the filter) or how to fail (the CLI's exit
+code), plus `text`: `ty`'s own diagnostic block verbatim, so `immut check`'s
+output looks exactly like `ty check`'s. A future LSP server (per CLAUDE.md's
+"Private ty backend") would drive `ty server` directly instead -- a separate
+code path, since LSP `publishDiagnostics` needs `ty`'s clean structured
+message, not this CLI-oriented rendered text.
 """
 
 from pathlib import Path

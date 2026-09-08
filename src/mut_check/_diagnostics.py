@@ -1,11 +1,10 @@
 """
-The structured diagnostic shape shared by every `mut_check` frontend.
+The structured diagnostic shape shared internally by `mut_check`.
 
-Both the CLI and the future LSP server (see CLAUDE.md's "Private ty backend")
-need to present the same underlying results -- one as human-readable text,
-the other as `publishDiagnostics` JSON. Neither should work from raw `ty`
-text output directly, so `mut_check.check()` returns this structured form
-instead, and each frontend renders it however fits.
+`text` is `ty`'s own diagnostic block, verbatim -- this is what lets `immut
+check`'s output look exactly like `ty check`'s: `mut_check` never re-renders
+it, only decides (via `severity`/`code`/`file`/`line`/`col`) which blocks to
+keep.
 """
 
 from dataclasses import dataclass
@@ -14,14 +13,14 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class Diagnostic:
-    """One diagnostic, already decoded from `ty`'s `--output-format github` shape."""
+    """One diagnostic, parsed from `ty`'s default text output."""
 
-    severity: str  # "error" | "warning" | "notice"
+    severity: str  # "error" | "warning" | "info"
     code: str
     file: Path
     line: int
     col: int
-    message: str
+    text: str
 
     def is_blocking(self) -> bool:
         """Whether this diagnostic alone should make a check fail."""

@@ -19,7 +19,7 @@ class Locked:
     value: int
 
 
-def use(x: HasValue) -> None: ...
+def use(_x: HasValue) -> None: ...
 
 
 use(Locked())
