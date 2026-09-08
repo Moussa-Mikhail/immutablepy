@@ -5,3 +5,9 @@
 [environment]
 python-version = "3.13"
 extra-paths = ["../../../stubs/internal"]
+# Without this, ty treats this file's own directory (_ty_project/) as the
+# first-party root -- since there's no pyproject.toml here to walk up past --
+# which breaks resolving anything outside it (e.g. src/tests/_checkers.py's
+# bare import, which relies on src-layout auto-detection rooted at the real
+# repo root).
+root = ["../../.."]
