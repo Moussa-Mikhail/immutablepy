@@ -130,6 +130,27 @@ Unannotated local `T` is read-only — reassignment is an error, same as for fie
 `Mut[T]` on an immutable type (e.g. `Mut[int]`) means the *binding* can be reassigned,
 since there's nothing else to mutate.
 
+### Immutable types always satisfy `Mut[T]`, aliased or not
+
+A value of an immutable type (`int`, `str`, `bytes`, `float`, `bool`, `complex`,
+`frozenset`, a `tuple` of immutables, ...) is special-cased to always be
+assignable/passable to a `Mut[T]` position, whether it's freshly constructed or an
+aliased reference from anywhere — there's no mutation hazard to protect against, since
+nothing can mutate an immutable value through any reference. This supersedes treating
+an aliased plain `int` passed where `Mut[int]` is expected as a rejection; that's no
+longer correct.
+
+**Not the same thing as "immutable types are `Mut` by default."** The local-reassignment
+rule above is untouched: `x: int` still can't be reassigned without `Mut[int]` on its
+declaration. What changes is only the *other direction* — once something requires
+`Mut[T]` for an immutable `T`, any value of that type satisfies it, unconditionally.
+
+This also means the typeshed/`__builtins__.pyi` stubbing route (see "Stdlib and
+third-party support") is only needed for genuinely **mutable** stdlib types (`list`,
+`dict`, `set`, `bytearray`, ...), where a returned value's aliasing actually matters.
+Immutable-type dunders like `int.__add__` don't need `Mut`-aware return-type stubs at
+all — the special case makes that unnecessary regardless of what the method returns.
+
 ### Constructors and literals satisfy `Mut` positions
 
 `x: Mut[list[int]] = [1, 2, 3]` is allowed — fresh values are provably unaliased at
@@ -188,10 +209,41 @@ This matches Rust's `&mut Vec<&T>` vs `&mut Vec<&mut T>` distinction.
 
 ### Stdlib and third-party support
 
-The tool provides its own type stubs for stdlib mutating methods (`list.append`,
-`dict.update`, `set.add`, etc.), fed to the private `ty` instance via `extra-paths`.
-Same mechanism for third-party libraries as needed. This is a real, ongoing maintenance
-burden — the stdlib surface is large and evolves across Python versions.
+**Scope**: only genuinely mutable stdlib types (`list`, `dict`, `set`, `bytearray`,
+...) need any of this — see "Immutable types always satisfy `Mut[T]`" above.
+`int.__add__` was the method used to investigate the mechanism below, but per that
+special case it turns out to need no stub at all, regardless of what it returns.
+
+**The dunder name `__builtins__.pyi` does work**, on `ty` 0.0.79 (currently
+installed) — matching pyright/pyrefly's convention, per
+[PR #22021](https://github.com/astral-sh/ruff/pull/22021), it layers custom
+definitions on top of vendored typeshed instead of replacing it. Confirmed with
+non-literal operands (`a: int, b: int; a + b`) — literal operands like `1 + 2` don't
+work as a test, since `ty` constant-folds them to `Literal[3]` without ever
+consulting `int.__add__`'s stub, masking whether an override took effect either way.
+Works through our own intersection mechanism too: `int.__add__` stubbed to return
+`Mut[int]` makes `x: Mut[int] = a + b` type-check clean. It's discovered via
+`extra-paths`, not just the literal project root — confirmed placing it in
+`stubs/internal/` (already on our private `ty`'s `extra-paths`) is picked up
+correctly. A bare attribute-annotation patch attempt (`int.__add__: Callable[[int,
+int], Mut[int]]` at module level, without a full `class int:` block) does *not*
+work — `ty` silently ignores it as a patch target (confirmed via
+`reveal_type(int.__add__)` still showing the real signature); only actual
+`class`/`def` redefinitions are recognized.
+
+**The real catch: whole-class replacement, not per-method patching.** Redeclaring
+`class int:` with only `__add__` silently drops every other member — `bit_length`,
+`__sub__`, `__mul__`, etc. all became `unsupported-operator`/`unresolved-attribute`
+errors in testing. Brand-new top-level names and untouched classes are unaffected, so
+it's additive at the *module* level but replacing at the *class* level. Using this for
+a mutable type like `list`/`dict`/`set` therefore means copying that class's *entire*
+member set from real typeshed once (not the whole stdlib — just the specific classes
+touched), modifying only the signatures that need `Mut`-awareness (e.g. `list.append`
+taking a `Mut`-aware element type when the list itself is `Mut[list[Mut[User]]]`).
+Not yet built. The AST-filter alternative (recognizing `list.append`-style calls as
+construction-exemption cases in `mut_check._filter`) remains a viable fallback that
+avoids tracking typeshed at all — worth weighing against this once someone actually
+implements either.
 
 ### Target audience
 

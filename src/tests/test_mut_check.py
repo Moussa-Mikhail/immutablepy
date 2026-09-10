@@ -30,6 +30,10 @@ MUT_MARKER_EXPLANATION = "not assignable to element `MutMarker`"
 
 
 def test_aliased_plain_t_is_rejected_for_mut_position() -> None:
+    """`T` here is a mutable type (`list[int]`) -- aliasing genuinely matters for
+    mutable types, unlike immutable ones (see CLAUDE.md's "Immutable types always
+    satisfy Mut[T]").
+    """
     diagnostics = check(REJECTS_ALIASED_T)
 
     assert not is_clean(diagnostics)
