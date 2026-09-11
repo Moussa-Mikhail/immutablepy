@@ -21,10 +21,11 @@ from pathlib import Path
 from mut_check import _ty
 from mut_check._diagnostics import Diagnostic
 from mut_check._filter import filter_construction_exemption
+from mut_check._immutable import filter_immutable_type_exemption
 
 __all__ = ["Diagnostic", "check"]
 
 
 def check(*paths: str | Path) -> list[Diagnostic]:
     """Run the private static check against `paths`, returning the filtered diagnostics."""
-    return filter_construction_exemption(_ty.run(*paths))
+    return filter_immutable_type_exemption(filter_construction_exemption(_ty.run(*paths)))

@@ -133,12 +133,35 @@ since there's nothing else to mutate.
 ### Immutable types always satisfy `Mut[T]`, aliased or not
 
 A value of an immutable type (`int`, `str`, `bytes`, `float`, `bool`, `complex`,
-`frozenset`, a `tuple` of immutables, ...) is special-cased to always be
-assignable/passable to a `Mut[T]` position, whether it's freshly constructed or an
-aliased reference from anywhere — there's no mutation hazard to protect against, since
-nothing can mutate an immutable value through any reference. This supersedes treating
-an aliased plain `int` passed where `Mut[int]` is expected as a rejection; that's no
-longer correct.
+`frozenset`, `tuple`, ...) is special-cased to always be assignable/passable to a
+`Mut[T]` position, whether it's freshly constructed or an aliased reference from
+anywhere — there's no mutation hazard to protect against, since nothing can mutate an
+immutable value through any reference. This supersedes treating an aliased plain `int`
+passed where `Mut[int]` is expected as a rejection; that's no longer correct.
+
+`tuple` qualifies regardless of its element types — `tuple[list[int], int]` is exempt
+the same as `tuple[int, str]`, since a tuple itself has no mutating operations at all
+(no item assignment, no `append`/`pop`); aliasing the tuple binding can never expose a
+way to restructure it. Mutating an element reached through the tuple (e.g. the `list`
+inside `tuple[list[int], int]`) is governed by that element's own `Mut` annotation
+(`tuple[Mut[list[int]], int]`), independent of whether the tuple binding itself needed
+`Mut` — the same compositional split as "Container content mutability is compositional"
+below, just starting from a container that's unconditionally immutable itself.
+
+**Generalizes to read-only abstract types.** The actual criterion was never "is this
+type on a fixed concrete list" — it's "does this type's own interface expose any
+mutating operation, regardless of what it holds." That test also passes for structural
+read-only types with no mutating members in their own definition: `Sequence[T]`,
+`Mapping[K, V]`, `Collection[T]`, `Iterable[T]`, `Iterator[T]`, `Container[T]`, `Sized`,
+`Hashable`, `Reversible`, the `*View` types, ... — `Mut[Sequence[T]]` grants nothing a
+plain `Sequence[T]` reference couldn't already do, same as `tuple`. `MutableSequence`/
+`MutableMapping`/`MutableSet` stay excluded, same as `list`/`dict`/`set` — that's the
+whole reason those `Mutable*` names exist. Enforcement here is purely static, so even
+if the runtime object behind a `Sequence[int]`-typed reference happens to be a mutable
+`list`, the reference's own type structurally forbids mutating through it — the same
+structural-typing argument that already justifies everything else in this design.
+Hand-maintained allowlist, same as the concrete types above, not derived from
+structure.
 
 **Not the same thing as "immutable types are `Mut` by default."** The local-reassignment
 rule above is untouched: `x: int` still can't be reassigned without `Mut[int]` on its

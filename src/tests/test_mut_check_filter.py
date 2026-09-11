@@ -57,8 +57,10 @@ def test_set_literal_satisfies_mut() -> None:
 def test_aliased_assignment_is_not_suppressed() -> None:
     """Same `AnnAssign` shape as the literal fixtures, but a plain variable
     reference, not a literal -- the filter must not overreach and suppress this.
+    Uses `list[int]` (mutable) so this remains a true positive under the
+    immutable-type exemption too -- see test_mut_check_immutable_types.py.
     """
     diagnostics = check(REJECTS_ALIASED_ASSIGNMENT)
 
     assert not is_clean(diagnostics)
-    assert "not assignable to `Mut[int]`" in diagnostics_text(diagnostics)
+    assert "not assignable to `Mut[list[int]]`" in diagnostics_text(diagnostics)
