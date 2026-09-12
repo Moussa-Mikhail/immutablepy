@@ -116,13 +116,18 @@ code but their `message` field never contains the `MutMarker` explanation — co
 directly via raw LSP `publishDiagnostics` payloads, not just CLI rendering (`ty check
 --output-format concise` independently corroborates the same absence) — and augmented
 assignment (`total += i`) turns out to have the same gap, confirmed the same way.
-`mut_check._immutable.filter_immutable_type_exemption` falls back to the primary
-message shape (`Object of type \`X\` is not assignable to \`Mut[`) when the info line
-is missing, which covers this for immutable `X` — but that filter only fires for
-`invalid-assignment`/`invalid-argument-type` with `X` on its allowlist. A general
-message-substring filter still needs the same primary-message fallback for mutable `X`,
-or for-loop/`with`/augmented-assignment forms leak real-looking errors for mutable types
-where the construction-exemption filter doesn't otherwise cover them.
+
+Two filters now cover this, by different means. `mut_check._filter.filter_construction_exemption`
+treats every `for`/`with` target-binding location as exempt unconditionally (any type,
+via AST inspection matching the diagnostic's exact `(line, col)`) — sound because once a
+target is declared `Mut[T]`, `ty` already treats it as `Mut[T]` for the rest of the
+scope regardless of whether this one diagnostic is shown (confirmed via `reveal_type`),
+so suppressing it loosens nothing real. `mut_check._immutable.filter_immutable_type_exemption`
+separately falls back to the primary message shape (`Object of type \`X\` is not
+assignable to \`Mut[`) when the info line is missing, covering augmented assignment
+(`total += i`) for immutable `X`. Augmented assignment on a *mutable* `X` (e.g. a
+custom `__iadd__` returning a fresh, unmarked value) remains an open gap — no fixture
+exercises it yet.
 
 The custom pass still owns: transitivity/reachability, per-field `Mut` locks, and the
 construction-escape check — these aren't type-compatibility questions.
