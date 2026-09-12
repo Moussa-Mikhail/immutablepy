@@ -74,6 +74,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "src/tests/**" = [
     "ANN",   # fixtures intentionally exercise loosely-annotated / edge-case signatures
+    "B007",  # fixtures pre-declare a for-loop target to test its type, not its use in the body
     "CPY001", # no copyright header required in tests
     "D",     # tests and fixtures don't need docstrings
     "INP001", # tests dir is not a distributed package

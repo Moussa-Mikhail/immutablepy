@@ -114,10 +114,15 @@ fully parseable) — **for plain assignment and tuple-unpacking only**. For-loop
 `with`-statement pre-declared targets (see below) raise the same `invalid-assignment`
 code but their `message` field never contains the `MutMarker` explanation — confirmed
 directly via raw LSP `publishDiagnostics` payloads, not just CLI rendering (`ty check
---output-format concise` independently corroborates the same absence). The filter must
-also match on the primary message shape (`is not assignable to \`Mut[`) rather than
-relying on the `MutMarker` sub-string alone, or these two pre-declaration forms will
-leak real-looking errors to users for code the design explicitly says should be silent.
+--output-format concise` independently corroborates the same absence) — and augmented
+assignment (`total += i`) turns out to have the same gap, confirmed the same way.
+`mut_check._immutable.filter_immutable_type_exemption` falls back to the primary
+message shape (`Object of type \`X\` is not assignable to \`Mut[`) when the info line
+is missing, which covers this for immutable `X` — but that filter only fires for
+`invalid-assignment`/`invalid-argument-type` with `X` on its allowlist. A general
+message-substring filter still needs the same primary-message fallback for mutable `X`,
+or for-loop/`with`/augmented-assignment forms leak real-looking errors for mutable types
+where the construction-exemption filter doesn't otherwise cover them.
 
 The custom pass still owns: transitivity/reachability, per-field `Mut` locks, and the
 construction-escape check — these aren't type-compatibility questions.

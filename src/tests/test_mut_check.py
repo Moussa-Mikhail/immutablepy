@@ -17,6 +17,7 @@ REJECTS_ALIASED_T = FIXTURES_DIR / "mut_check_rejects_aliased_t.py"
 ACCEPTS_MUT_WHERE_T_EXPECTED = FIXTURES_DIR / "mut_check_accepts_mut_where_t_expected.py"
 GENERIC_SUBSTITUTION = FIXTURES_DIR / "mut_check_generic_substitution.py"
 PREDECLARED_FOR_LOOP = FIXTURES_DIR / "mut_check_predeclared_for_loop.py"
+PREDECLARED_FOR_LOOP_MUTABLE = FIXTURES_DIR / "mut_check_predeclared_for_loop_mutable.py"
 FOR_LOOP_READ_ONLY = FIXTURES_DIR / "mut_check_for_loop_read_only_needs_no_mut.py"
 PREDECLARED_WITH = FIXTURES_DIR / "mut_check_predeclared_with.py"
 PREDECLARED_UNPACKING = FIXTURES_DIR / "mut_check_predeclared_unpacking.py"
@@ -65,22 +66,34 @@ def test_for_loop_reading_only_needs_no_mut() -> None:
     assert is_clean(diagnostics), diagnostics_text(diagnostics)
 
 
-def test_predeclared_for_loop_lacks_marker_explanation() -> None:
+def test_predeclared_for_loop_with_immutable_type_is_clean() -> None:
     """Pre-declaring `Mut[int]` is only justified here because the loop body
     reassigns `i` (`i += 1`) -- see test_for_loop_reading_only_needs_no_mut for
-    the case where it isn't needed. Known gap: unlike plain assignment, neither
-    the implicit per-iteration binding nor the augmented assignment mentions
-    `MutMarker` in its message -- confirmed by inspecting the checker's
-    diagnostics directly, not just its default rendering. A filter matching
-    only on the `MutMarker` substring misses both.
+    the case where it isn't needed. Neither the implicit per-iteration binding
+    nor the augmented assignment mentions `MutMarker` in its message, unlike
+    plain assignment -- but `int` is immutable, so `filter_immutable_type_exemption`
+    falls back to the primary message and covers this anyway (see
+    test_predeclared_for_loop_mutable_type_lacks_marker_explanation for the
+    version of this gap that's still real).
     """
     diagnostics = check(PREDECLARED_FOR_LOOP)
+
+    assert is_clean(diagnostics), diagnostics_text(diagnostics)
+
+
+def test_predeclared_for_loop_mutable_type_lacks_marker_explanation() -> None:
+    """Same gap as above, but `Box` isn't on the immutable allowlist, so it's
+    still a real, unfixed gap: unlike plain assignment, the for-loop target's
+    message never mentions `MutMarker` -- confirmed by inspecting the checker's
+    diagnostics directly, not just its default rendering. A filter matching
+    only on the `MutMarker` substring misses this.
+    """
+    diagnostics = check(PREDECLARED_FOR_LOOP_MUTABLE)
     text = diagnostics_text(diagnostics)
 
     assert not is_clean(diagnostics)
-    assert text.count("is not assignable to `Mut[int]`") == 2
+    assert "is not assignable to `Mut[Box]`" in text
     assert MUT_MARKER_EXPLANATION not in text
-    assert "int & MutMarker" in text  # from reveal_type, not the error itself
 
 
 def test_predeclared_with_lacks_marker_explanation() -> None:
