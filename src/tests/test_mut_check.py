@@ -21,6 +21,7 @@ PREDECLARED_FOR_LOOP_MUTABLE = FIXTURES_DIR / "mut_check_predeclared_for_loop_mu
 FOR_LOOP_READ_ONLY = FIXTURES_DIR / "mut_check_for_loop_read_only_needs_no_mut.py"
 PREDECLARED_WITH = FIXTURES_DIR / "mut_check_predeclared_with.py"
 PREDECLARED_UNPACKING = FIXTURES_DIR / "mut_check_predeclared_unpacking.py"
+PREDECLARED_UNPACKING_MUTABLE = FIXTURES_DIR / "mut_check_predeclared_unpacking_mutable.py"
 CONTAINER_MUTABILITY_OK = FIXTURES_DIR / "mut_check_container_mutability_ok.py"
 CONTAINER_MUTABILITY_BAD = FIXTURES_DIR / "mut_check_container_mutability_bad.py"
 PROTOCOL_CONFORMANCE_BAD = FIXTURES_DIR / "mut_check_protocol_conformance_bad.py"
@@ -107,14 +108,28 @@ def test_predeclared_with_lacks_marker_explanation() -> None:
     assert "StringIO & MutMarker" in text  # from reveal_type, not the error itself
 
 
-def test_predeclared_unpacking_has_marker_explanation() -> None:
-    """Unlike for-loop/with, unpacking's message shape matches plain assignment."""
+def test_predeclared_unpacking_with_immutable_type_is_clean() -> None:
+    """Unlike for-loop/with, unpacking's raw message shape matches plain assignment
+    (includes the `MutMarker` explanation) -- but `int` is immutable, so `check()`
+    must still come back clean (see
+    test_predeclared_unpacking_mutable_type_is_rejected for a genuinely mutable
+    type, still correctly rejected).
+    """
     diagnostics = check(PREDECLARED_UNPACKING)
+
+    assert is_clean(diagnostics), diagnostics_text(diagnostics)
+
+
+def test_predeclared_unpacking_mutable_type_is_rejected() -> None:
+    """Same shape as above, but `list[int]` isn't on the immutable allowlist, so
+    aliasing it via unpacking is still correctly rejected.
+    """
+    diagnostics = check(PREDECLARED_UNPACKING_MUTABLE)
     text = diagnostics_text(diagnostics)
 
     assert not is_clean(diagnostics)
     assert MUT_MARKER_EXPLANATION in text
-    assert "int & MutMarker" in text
+    assert "list[int] & MutMarker" in text
 
 
 def test_container_mutability_is_compositional() -> None:
