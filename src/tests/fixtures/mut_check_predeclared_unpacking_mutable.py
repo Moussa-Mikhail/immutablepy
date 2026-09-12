@@ -1,9 +1,11 @@
 """Only meaningful under `mut_check`'s private, intersection-based view.
 
-Same pre-declared unpacking target as mut_check_predeclared_unpacking.py,
-but with a genuinely mutable type (`list[int]`, not on the immutable
-allowlist) instead of `int` -- confirms aliasing an unpacked mutable value
-is still correctly rejected.
+Unlike mut_check_unpacking_without_mut.py, `a` is aliased here (from
+`get_values()`, not a literal) and genuinely mutable (`list[int]`, not on
+the immutable allowlist) -- so pre-declaring `Mut[list[int]]` is genuinely
+needed, and aliasing it via unpacking is still correctly rejected. Not about
+"was it modified after" at all; this is the same aliasing hazard as
+mut_check_rejects_aliased_t.py, just via unpacking syntax.
 """
 
 from immutablepy import Mut

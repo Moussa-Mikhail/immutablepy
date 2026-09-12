@@ -17,10 +17,10 @@ REJECTS_ALIASED_T = FIXTURES_DIR / "mut_check_rejects_aliased_t.py"
 ACCEPTS_MUT_WHERE_T_EXPECTED = FIXTURES_DIR / "mut_check_accepts_mut_where_t_expected.py"
 GENERIC_SUBSTITUTION = FIXTURES_DIR / "mut_check_generic_substitution.py"
 PREDECLARED_FOR_LOOP = FIXTURES_DIR / "mut_check_predeclared_for_loop.py"
-PREDECLARED_FOR_LOOP_MUTABLE = FIXTURES_DIR / "mut_check_predeclared_for_loop_mutable.py"
 FOR_LOOP_READ_ONLY = FIXTURES_DIR / "mut_check_for_loop_read_only_needs_no_mut.py"
-PREDECLARED_WITH = FIXTURES_DIR / "mut_check_predeclared_with.py"
-PREDECLARED_UNPACKING = FIXTURES_DIR / "mut_check_predeclared_unpacking.py"
+FOR_LOOP_MUTABLE_TYPE_READ_ONLY = FIXTURES_DIR / "mut_check_for_loop_mutable_type_read_only.py"
+WITH_READ_ONLY = FIXTURES_DIR / "mut_check_with_read_only.py"
+UNPACKING_WITHOUT_MUT = FIXTURES_DIR / "mut_check_unpacking_without_mut.py"
 PREDECLARED_UNPACKING_MUTABLE = FIXTURES_DIR / "mut_check_predeclared_unpacking_mutable.py"
 CONTAINER_MUTABILITY_OK = FIXTURES_DIR / "mut_check_container_mutability_ok.py"
 CONTAINER_MUTABILITY_BAD = FIXTURES_DIR / "mut_check_container_mutability_bad.py"
@@ -80,34 +80,43 @@ def test_predeclared_for_loop_with_immutable_type_is_clean() -> None:
     assert is_clean(diagnostics), diagnostics_text(diagnostics)
 
 
-def test_predeclared_for_loop_with_mutable_type_is_clean() -> None:
-    """Same as above, but `Box` isn't on the immutable allowlist -- confirms the
-    target-binding exemption doesn't depend on the target's type.
+def test_for_loop_mutable_type_read_only_needs_no_mut() -> None:
+    """Same as test_for_loop_reading_only_needs_no_mut, but with a genuinely
+    mutable type (`Box`) instead of `int` -- confirms "read-only needs no `Mut`"
+    doesn't depend on the target's type. `reveal_type` shows plain `Box`, not
+    `Box & MutMarker`.
     """
-    diagnostics = check(PREDECLARED_FOR_LOOP_MUTABLE)
+    diagnostics = check(FOR_LOOP_MUTABLE_TYPE_READ_ONLY)
+    text = diagnostics_text(diagnostics)
 
-    assert is_clean(diagnostics), diagnostics_text(diagnostics)
+    assert is_clean(diagnostics), text
+    assert "MutMarker" not in text
 
 
-def test_predeclared_with_is_clean() -> None:
-    """Same target-binding exemption as the for-loop case, for `with`-statement
-    pre-declared targets. `StringIO` is mutable, same as `Box` above.
+def test_with_read_only_needs_no_mut() -> None:
+    """A `with`-statement target that's only read needs no `Mut` pre-declaration
+    at all, same as for-loops. `reveal_type` shows plain `StringIO`, not
+    `StringIO & MutMarker`.
     """
-    diagnostics = check(PREDECLARED_WITH)
+    diagnostics = check(WITH_READ_ONLY)
+    text = diagnostics_text(diagnostics)
 
-    assert is_clean(diagnostics), diagnostics_text(diagnostics)
+    assert is_clean(diagnostics), text
+    assert "MutMarker" not in text
 
 
-def test_predeclared_unpacking_with_immutable_type_is_clean() -> None:
-    """Unlike for-loop/with, unpacking's raw message shape matches plain assignment
-    (includes the `MutMarker` explanation) -- but `int` is immutable, so `check()`
-    must still come back clean (see
-    test_predeclared_unpacking_mutable_type_is_rejected for a genuinely mutable
-    type, still correctly rejected).
+def test_unpacking_without_mut_needs_no_mut() -> None:
+    """Per CLAUDE.md: "Unpacking without pre-declaration produces immutable
+    bindings by default." No `Mut` pre-declaration needed when the unpacked
+    targets are only read afterward (see
+    test_predeclared_unpacking_mutable_type_is_rejected for the case where
+    aliasing a *mutable* unpacked value is still correctly rejected).
     """
-    diagnostics = check(PREDECLARED_UNPACKING)
+    diagnostics = check(UNPACKING_WITHOUT_MUT)
+    text = diagnostics_text(diagnostics)
 
-    assert is_clean(diagnostics), diagnostics_text(diagnostics)
+    assert is_clean(diagnostics), text
+    assert "MutMarker" not in text
 
 
 def test_predeclared_unpacking_mutable_type_is_rejected() -> None:
