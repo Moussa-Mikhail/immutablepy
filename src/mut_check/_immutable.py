@@ -22,8 +22,8 @@ turns out, augmented assignment (`total += i`) -- raise the same
 Mut[int] = 0; total += i` inside a loop produces "Object of type `int` is
 not assignable to `Mut[int]`" with no info line whatsoever). The primary
 message is always present regardless, so it's the fallback: "Object of type
-`X` is not assignable to `Mut[...`" (optionally "...to attribute `name` of
-type `Mut[...`" for attributes). Either way the extracted name is compared
+`X` is not assignable to `Mut[...]`" (optionally "...to attribute `name` of
+type `Mut[...]`" for attributes). Either way the extracted name is compared
 against the hand-maintained immutable-type allowlist below (generic
 parameters stripped, so `tuple[list[int], int]` and `Sequence[int]` are
 recognized as `tuple` and `Sequence`).

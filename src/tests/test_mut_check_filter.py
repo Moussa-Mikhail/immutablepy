@@ -1,3 +1,4 @@
+# noinspection GrazieStyle
 """`mut_check`'s diagnostic filter must suppress the construction/literal false positive.
 
 Per CLAUDE.md's construction exemption ("Constructors and literals satisfy

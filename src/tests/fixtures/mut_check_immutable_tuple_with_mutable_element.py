@@ -13,7 +13,7 @@ from immutablepy import Mut
 
 
 def get_value() -> tuple[list[int], int]:
-    return ([1], 2)
+    return [1], 2
 
 
 y: tuple[list[int], int] = get_value()

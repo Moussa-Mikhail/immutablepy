@@ -11,7 +11,7 @@ from immutablepy import Mut
 
 
 def get_value() -> tuple[int, str]:
-    return (1, "hi")
+    return 1, "hi"
 
 
 y: tuple[int, str] = get_value()
