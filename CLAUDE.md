@@ -205,10 +205,42 @@ all — the special case makes that unnecessary regardless of what the method re
 
 ### Constructors and literals satisfy `Mut` positions
 
-`x: Mut[list[int]] = [1, 2, 3]` is allowed — fresh values are provably unaliased at
-creation. This is the same construction-time exemption as for fields, applied to
-assignment. At `ty`'s level, these produce a false-positive (`T not assignable to
-MutMarker`) that the filter already suppresses.
+An object created in the current scope can be assigned/passed/returned as `Mut` —
+provably unaliased at that point, nothing else could hold a reference yet. This is the
+same construction-time exemption as for fields, generalized: `x: Mut[list[int]] = [1,
+2, 3]` (assignment), `def f() -> Mut[Box]: return Box()` (return value),
+`f(Box())` where `f`'s parameter is `Mut[Box]` (call argument) — `ty` always points its
+false-positive diagnostic at the fresh expression's own position regardless of which of
+these three it is, so `mut_check._filter.filter_construction_exemption` matches purely
+on position, with no need to special-case `AnnAssign`/`Return`/`Call` separately.
+Literal displays and comprehensions/generator expressions always count as fresh.
+Calls are narrower — only **class-instantiation calls**, not arbitrary function calls:
+instantiating a class has a *language-level* freshness guarantee (`__new__` always
+allocates, whatever `__init__` does with it) that an arbitrary function's return value
+doesn't have. An earlier version treated any bare-name call as fresh, which meant
+inferring freshness for `get_values()` (an ordinary function) from its *implementation*
+(happened to construct fresh lists) rather than its *declared return type* (plain, no
+`Mut` anywhere) — exactly the "no implicit inference from bodies" mistake this design
+already rejects elsewhere (see "Methods and per-field mutability" above), just not
+caught here until the fixture built on that premise was checked against it. So a
+bare-name call only counts if the name is a locally-`class`-defined name or a built-in
+mutable-container constructor (`list`, `dict`, `set`, `bytearray`) — immutable built-in
+constructors aren't needed here since `_immutable` already exempts those by type name
+regardless of origin. **Except** method calls (`obj.method(...)`): the call's own AST
+position coincides with the *receiver* `obj`'s, not with anything the call returns, so
+treating every call as fresh wrongly exempted `c.increment()` on a plain, genuinely
+aliased receiver `c` (confirmed as a real overreach bug too). Also confirmed: matching
+on any `Mut[` mention anywhere in a diagnostic's text is too broad, since a Protocol
+structural mismatch (see "Protocols" above) can mention `Mut[` three levels deep inside
+a `└──` tree explaining an unrelated per-field type mismatch — the filter only matches
+non-nested lines.
+
+This can't distinguish a constructor that returns fresh state from one that returns a
+cached/shared object — same structural-typing tradeoff the rest of this design already
+makes. Not covered: a `Name` referring to a value obtained earlier (even from a fresh
+call) — only the call/literal/comprehension's own position is exempt, not every later
+reference to whatever it produced; or calls to imported/external classes (only
+locally-`class`-defined names are recognized, a static AST check, not a name lookup).
 
 ### Pre-declaration for loops, unpacking, and `with`
 
