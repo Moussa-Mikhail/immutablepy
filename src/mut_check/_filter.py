@@ -34,6 +34,7 @@ diagnostics at a different location, judged independently.
 import ast
 import re
 
+from immutablepy import Mut
 from mut_check._diagnostics import Diagnostic
 
 _ASSIGNMENT_MESSAGE = re.compile(r"is not assignable to `Mut\[")
@@ -72,7 +73,7 @@ def _is_construction_exempt_false_positive(diagnostic: Diagnostic, locations_by_
     return locations is not None and (diagnostic.line, diagnostic.col) in locations
 
 
-def filter_construction_exemption(diagnostics: list[Diagnostic]) -> list[Diagnostic]:
+def filter_construction_exemption(diagnostics: Mut[list[Diagnostic]]) -> Mut[list[Diagnostic]]:
     """Drop diagnostics that are exactly `ty`'s construction/literal false positive."""
     if not diagnostics:
         return diagnostics

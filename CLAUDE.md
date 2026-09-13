@@ -130,7 +130,9 @@ custom `__iadd__` returning a fresh, unmarked value) remains an open gap — no 
 exercises it yet.
 
 The custom pass still owns: transitivity/reachability, per-field `Mut` locks, and the
-construction-escape check — these aren't type-compatibility questions.
+construction-escape check — these aren't type-compatibility questions. Its first piece
+now exists (`mut_check._reassignment`): plain-local/parameter reassignment without
+`Mut` — see "Locals require `Mut` for reassignment" below.
 
 ## Syntax and ergonomics
 
@@ -139,6 +141,23 @@ construction-escape check — these aren't type-compatibility questions.
 Unannotated local `T` is read-only — reassignment is an error, same as for fields.
 `Mut[T]` on an immutable type (e.g. `Mut[int]`) means the *binding* can be reassigned,
 since there's nothing else to mutate.
+
+**Enforced by `mut_check._reassignment`** (`ty` has no notion of this at all — confirmed
+directly, it reports nothing for `for i in range(5): i += 1` with no `Mut` anywhere).
+Applies to locals and parameters, `ast.Name` targets only (attribute writes are a
+separate, not-yet-designed rule — per-field locks/construction escape). A local's first
+real assignment is always free, establishing it as non-`Mut` by default unless already
+declared otherwise; every assignment after that (plain or augmented — augmented always
+presupposes an existing value) needs `Mut`. Parameters have no free first assignment,
+since the call itself already bound them. `for`/`with`/unpacking target bindings
+establish/preserve status but are never themselves a violation, matching the exemption
+`mut_check._filter` already gives the corresponding `ty` diagnostics — only a
+*subsequent* reassignment inside the body is checked. A bare `AnnAssign` (`x: T`, no
+value) sets permission only, not boundness — conflating the two was a real bug caught
+while building this (`b: list[int]` followed by unpacking into `b` looked like a second
+assignment). Scoping (function/lambda/class/comprehension) matches real Python rules;
+`global`/`nonlocal` aren't modeled, so an unmodeled name is never flagged (false
+negatives preferred over false positives for a first pass).
 
 ### Immutable types always satisfy `Mut[T]`, aliased or not
 

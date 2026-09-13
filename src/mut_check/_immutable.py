@@ -34,6 +34,7 @@ diagnostic codes this exemption is known to matter for.
 
 import re
 
+from immutablepy import Mut
 from mut_check._diagnostics import Diagnostic
 
 _MUT_MARKER_TYPE = re.compile(r"info: type `(?P<type>[^`]+)` is not assignable to element `MutMarker`")
@@ -88,6 +89,6 @@ def _is_immutable_type_false_positive(diagnostic: Diagnostic) -> bool:
     return match is not None and _base_type_name(match["type"]) in _IMMUTABLE_TYPE_NAMES
 
 
-def filter_immutable_type_exemption(diagnostics: list[Diagnostic]) -> list[Diagnostic]:
+def filter_immutable_type_exemption(diagnostics: list[Diagnostic]) -> Mut[list[Diagnostic]]:
     """Drop diagnostics that are exactly `ty`'s immutable-type aliasing false positive."""
     return [d for d in diagnostics if not _is_immutable_type_false_positive(d)]

@@ -16,6 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from immutablepy import Mut
 from mut_check._diagnostics import Diagnostic
 
 _TY_PROJECT_DIR = Path(__file__).resolve().parent / "_ty_project"
@@ -24,8 +25,8 @@ _HEADER = re.compile(r"^(error|warning|info)\[([a-z0-9-]+)\]:")
 _LOCATION = re.compile(r"^\s*--> (?P<file>.+):(?P<line>\d+):(?P<col>\d+)$")
 
 
-def _parse(stdout: str) -> list[Diagnostic]:
-    diagnostics = []
+def _parse(stdout: str) -> Mut[list[Diagnostic]]:
+    diagnostics: Mut[list[Diagnostic]] = []
     for block in stdout.split("\n\n"):
         lines = block.splitlines()
         if not lines:
@@ -50,9 +51,9 @@ def _parse(stdout: str) -> list[Diagnostic]:
     return diagnostics
 
 
-def run(*paths: str | Path) -> list[Diagnostic]:
+def run(*paths: str | Path) -> Mut[list[Diagnostic]]:
     """Run the private, intersection-based check against `paths`."""
-    result = subprocess.run(  # noqa: S603 -- fixed argv, no shell, `paths` are just file arguments
+    result = subprocess.run(  # noqa: S603 # fixed argv, no shell, `paths` are just file arguments
         [sys.executable, "-m", "ty", "check", "--project", str(_TY_PROJECT_DIR), *(str(p) for p in paths)],
         capture_output=True,
         text=True,

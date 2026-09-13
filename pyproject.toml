@@ -69,13 +69,16 @@ ignore = [
     "CPY001",
     "D203",
     "D212",
+    "TC001",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "src/tests/**" = [
     "ANN",   # fixtures intentionally exercise loosely-annotated / edge-case signatures
     "B007",  # fixtures pre-declare a for-loop target to test its type, not its use in the body
+    "C416",  # fixtures exercise comprehension syntax itself, not idiomatic list() calls
     "CPY001", # no copyright header required in tests
+    "F841",  # fixtures deliberately exercise unused (re)assignments -- that's what's under test
     "D",     # tests and fixtures don't need docstrings
     "INP001", # tests dir is not a distributed package
     "PLR2004", # exit codes/counts as literals are clearer than named constants here
