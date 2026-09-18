@@ -27,9 +27,9 @@ from mut_check import _ty
 from mut_check._diagnostics import Diagnostic
 from mut_check._filter import filter_construction_exemption
 from mut_check._immutable import filter_immutable_type_exemption
-from mut_check._reassignment import find_unpermitted_reassignments
+from mut_check._reassignment import UntypedMode, find_unpermitted_reassignments
 
-__all__ = ["Diagnostic", "check"]
+__all__ = ["Diagnostic", "UntypedMode", "check"]
 
 
 def _iter_python_files(path: Path) -> list[Path]:
@@ -38,18 +38,25 @@ def _iter_python_files(path: Path) -> list[Path]:
     return sorted(path.rglob("*.py"))
 
 
-def check(*paths: str | Path) -> list["Diagnostic"]:
-    """Run the private static check against `paths`, returning the filtered diagnostics."""
+def check(*paths: str | Path, untyped: UntypedMode = "permissive") -> list["Diagnostic"]:
+    """
+    Run the private static check against `paths`, returning the filtered diagnostics.
+
+    `untyped` only governs `mut_check`'s own custom pass (currently just
+    `_reassignment`) -- `ty` itself has no equivalent knob (`ty check --help`
+    exposes no strict/untyped-body flag at all; gradual typing is
+    unconditional there), so `get_ty_diagnostics` is unaffected by it.
+    """
     ty_diagnostics = get_ty_diagnostics(paths)
 
-    custom_diagnostics = get_custom_diagnostics(paths)
+    custom_diagnostics = get_custom_diagnostics(paths, untyped)
 
     return ty_diagnostics + custom_diagnostics
 
 
-def get_custom_diagnostics(paths: tuple[str | Path, ...]) -> list[Diagnostic]:
+def get_custom_diagnostics(paths: tuple[str | Path, ...], untyped: UntypedMode = "permissive") -> list[Diagnostic]:
     files = [file for path in paths for file in _iter_python_files(Path(path))]
-    return find_unpermitted_reassignments(*files)
+    return find_unpermitted_reassignments(*files, mode=untyped)
 
 
 def get_ty_diagnostics(paths: tuple[str | Path, ...]) -> list[Diagnostic]:

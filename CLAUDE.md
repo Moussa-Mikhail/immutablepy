@@ -365,13 +365,49 @@ annotations, the checker skips it entirely — no mutability violations reported
 with *any* `Mut` annotation is fully checked. This is the ratchet: adding `Mut` to one
 function commits you to annotating that function completely, but you never have to start
 until you're ready. Adding `Mut` to one function does not require adding it to every
-other function that touches the same values.
+other function that touches the same values. Applies to every custom-pass check, not
+just `ty`'s intersection-type checking — including `mut_check._reassignment`'s
+"unannotated local is read-only" rule, even though that check is purely syntactic and
+doesn't need `ty`'s machinery at all. Each function/lambda/module scope is gated
+independently (a nested function's own `Mut` usage doesn't retroactively opt in its
+enclosing scope, or vice versa); `ClassDef` and comprehension scopes aren't gated by this
+ratchet at all, since CLAUDE.md's wording only names "function (or file, or module)".
+
+## Untyped-code handling
+
+**Resolved as a three-mode knob** (`"strict"` / `"permissive"` / `"ignored"`, default
+`"permissive"`), scoped to `mut_check`'s own custom passes only — `ty` itself has no
+equivalent concept at all (confirmed: `ty check --help` exposes no strict/untyped-body
+flag; its gradual typing is unconditional, with no config knob to change it). Modeled
+after mypy's closest real precedent (`--check-untyped-defs` /
+`--disallow-untyped-defs` / per-module `ignore_errors`), not `ty`'s:
+
+- **`"permissive"`** (default): exactly the "Incremental adoption" ratchet above — a
+  scope with zero `Mut` annotations of its own is skipped.
+- **`"strict"`**: disables the ratchet: every scope is checked regardless of whether it
+  has any annotations at all. This was the tool's only behavior before the ratchet
+  existed.
+- **`"ignored"`**: a coarser, file-level cut on top — a file with zero type annotations
+  of *any* kind anywhere (not just `Mut`) is never even parsed for a custom pass, versus
+  `"permissive"`'s per-scope gate. For the only custom pass that exists today
+  (`_reassignment`), `"ignored"` and `"permissive"` report identically for such a file:
+  zero annotations anywhere trivially means zero `Mut` annotations everywhere, so the
+  per-scope gate already empties it out on its own. The two modes only diverge in
+  whether the file's AST is walked at all, not in what's reported — a real distinction
+  once a future custom pass exists whose behavior differs for "typed but `Mut`-less" vs.
+  "no types at all" (e.g. a per-field lock check might reasonably still want to inspect
+  a typed-but-`Mut`-less class even where `"permissive"` would otherwise skip it).
+
+Configured via a CLI-only flag today (`immut check --untyped=<mode>`, forwarded to
+`mut_check.check(..., untyped=<mode>)`) — no `pyproject.toml`/`ty.toml`-style config file
+support yet, deliberately deferred until the flag's shape has proven itself, even though
+`ty` itself reads config from exactly that kind of file.
 
 ## Open
 
-- Untyped-code handling: configurable (strict/permissive/ignored), default permissive.
-  Details not designed.
 - Construction-escape check: needs its own design.
 - Full backend integration: architecture decided and empirically validated, not yet
   built.
 - Stdlib stubs: scope and initial coverage not yet determined.
+- Untyped-code handling config file: `pyproject.toml`/`ty.toml`-style support for the
+  `untyped` mode, on top of today's CLI-only flag.

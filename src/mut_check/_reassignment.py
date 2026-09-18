@@ -13,6 +13,24 @@ Scoped to `Name` targets only -- `self.attr = x` is an `Attribute`
 target, a separate, not-yet-designed rule (per-field locks/construction
 escape), not this one.
 
+Gated by CLAUDE.md's "Incremental adoption" ratchet: a function/module scope
+with zero `Mut` annotations of its own is skipped entirely by default (mode
+`"permissive"`) -- confirmed this applies to this pass too, not just `ty`'s
+intersection-type checking, even though every one of this module's own
+"violation" fixtures originally had no `Mut` anywhere (they've since been
+given a throwaway opt-in annotation to keep demonstrating the rule under the
+new default). `"strict"` mode disables the gate, checking every scope
+regardless of annotations -- today's behavior before this ratchet existed.
+`"ignored"` mode adds a coarser, file-level cut on top: a file with zero
+type annotations of *any* kind (not just `Mut`) is never even parsed for
+this pass. `"ignored"` and `"permissive"` currently produce identical
+diagnostics for a fully-untyped file (zero annotations anywhere trivially
+means zero `Mut` annotations everywhere, so the per-scope gate already
+empties it out) -- the only difference today is whether the file's AST is
+walked at all, not what's reported. `ty` itself has no equivalent to any of
+this: `ty check --help` exposes no strict/untyped-body flag at all, gradual
+typing is unconditional there.
+
 Tracking model: a scope stack, pushed/popped on function/lambda/class/
 comprehension boundaries (matching real Python scoping -- assignment inside
 a nested function creates a new local there unless `global`/`nonlocal` is
@@ -58,6 +76,7 @@ from ast import (
     Lambda,
     List,
     ListComp,
+    Module,
     Name,
     NodeVisitor,
     SetComp,
@@ -67,15 +86,28 @@ from ast import (
     arguments,
     expr,
     parse,
+    stmt,
+    walk,
 )
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import override
+from typing import Literal, override
 
 from mut_check._ansi import BLUE, BOLD, RED, RESET
 from mut_check._diagnostics import Diagnostic
 
 _CODE = "reassignment-without-mut"
+
+type UntypedMode = Literal["strict", "permissive", "ignored"]
+
+# Not `Lambda`: its body is always a single `expr`, so it can never contain
+# the `Assign`/`AugAssign`/`AnnAssign`/`For`/`With` statements this checker
+# flags violations on -- there's nothing for a per-lambda gate to ever apply
+# to (confirmed: lambda parameters can't be annotated at all either --
+# `lambda x: int: x` is a `SyntaxError` -- so a lambda's own scope can never
+# even opt itself in).
+_GatingScope = Module | FunctionDef | AsyncFunctionDef
 
 
 def _is_mut_annotation(annotation: expr) -> bool:
@@ -102,6 +134,74 @@ def _flatten_name_targets(target: expr) -> list[Name]:
     return []
 
 
+# Not `Lambda`: it's an `expr`, never a member of a `stmt` sequence, so it
+# can never appear in the `stmts` this tuple is matched against below.
+_SCOPE_BOUNDARY_TYPES = (FunctionDef, AsyncFunctionDef, ClassDef)
+_COMPOUND_STMT_FIELDS = ("body", "orelse", "finalbody")
+
+
+def _own_scope_stmts(stmts: Sequence[stmt]) -> Iterator[stmt]:
+    """Yield every statement in `stmts` belonging to this same scope, not descending into nested scopes."""
+    for node in stmts:
+        yield node
+        if isinstance(node, _SCOPE_BOUNDARY_TYPES):
+            continue
+        for field in _COMPOUND_STMT_FIELDS:
+            child_stmts = getattr(node, field, None)
+            if child_stmts:
+                yield from _own_scope_stmts(child_stmts)
+        for handler in getattr(node, "handlers", ()):
+            yield from _own_scope_stmts(handler.body)
+
+
+def _has_own_mut_annotation(body: Sequence[stmt], args: arguments | None) -> bool:
+    """Whether this scope declares `Mut[...]` on a parameter or an `AnnAssign` of its own."""
+    if args is not None and any(
+        arg.annotation is not None and _is_mut_annotation(arg.annotation)
+        for arg in (*args.posonlyargs, *args.args, *args.kwonlyargs)
+    ):
+        return True
+    return any(isinstance(node, AnnAssign) and _is_mut_annotation(node.annotation) for node in _own_scope_stmts(body))
+
+
+def _relevant_scope_nodes(tree: Module) -> Iterator[_GatingScope]:
+    """Yield `tree` itself plus every `FunctionDef`/`AsyncFunctionDef` -- the scopes the ratchet gates."""
+    yield tree
+    for node in walk(tree):
+        if isinstance(node, FunctionDef | AsyncFunctionDef):
+            yield node
+
+
+def _compute_scope_has_mut(tree: Module) -> set[int]:
+    """`id(scope_node)` for every scope with a `Mut` annotation of its own (see `_has_own_mut_annotation`)."""
+    result: set[int] = set()
+    for scope_node in _relevant_scope_nodes(tree):
+        args = None if isinstance(scope_node, Module) else scope_node.args
+        if _has_own_mut_annotation(scope_node.body, args):
+            result.add(id(scope_node))
+    return result
+
+
+def _file_has_any_annotation(tree: Module) -> bool:
+    """
+    Whether `tree` has a type annotation of *any* kind anywhere -- not just `Mut` (see `"ignored"` mode).
+
+    Lambda parameters can never be annotated at all (confirmed: `lambda x:
+    int: x` is a `SyntaxError`), so lambdas are skipped -- they can never
+    contribute a `True` here.
+    """
+    for node in walk(tree):
+        if isinstance(node, AnnAssign):
+            return True
+        if isinstance(node, FunctionDef | AsyncFunctionDef):
+            if node.returns is not None:
+                return True
+            args = node.args
+            if any(arg.annotation is not None for arg in (*args.posonlyargs, *args.args, *args.kwonlyargs)):
+                return True
+    return False
+
+
 class _Scope:
     def __init__(self) -> None:
         self.permission: dict[str, bool] = {}
@@ -122,10 +222,11 @@ def _param_scope(args: arguments) -> _Scope:
 
 
 class _ReassignmentChecker(NodeVisitor):
-    def __init__(self) -> None:
-        self.violations: list[Name] = []
+    def __init__(self, tree: Module) -> None:
+        self.violations: list[tuple[Name, _GatingScope]] = []
         self._scope = _Scope()
         self._scope_stack: list[_Scope] = []
+        self._gating_scope: _GatingScope = tree
 
     def _push_scope(self, scope: _Scope | None = None) -> None:
         self._scope_stack.append(self._scope)
@@ -134,22 +235,31 @@ class _ReassignmentChecker(NodeVisitor):
     def _pop_scope(self) -> None:
         self._scope = self._scope_stack.pop()
 
-    def _visit_function_like(self, node: FunctionDef | AsyncFunctionDef | Lambda) -> None:
+    def _visit_gated_function_like(self, node: FunctionDef | AsyncFunctionDef) -> None:
         self._push_scope(_param_scope(node.args))
+        enclosing_gating_scope = self._gating_scope
+        self._gating_scope = node
         self.generic_visit(node)
+        self._gating_scope = enclosing_gating_scope
         self._pop_scope()
 
     @override
     def visit_FunctionDef(self, node: FunctionDef) -> None:
-        self._visit_function_like(node)
+        self._visit_gated_function_like(node)
 
     @override
     def visit_AsyncFunctionDef(self, node: AsyncFunctionDef) -> None:
-        self._visit_function_like(node)
+        self._visit_gated_function_like(node)
 
     @override
     def visit_Lambda(self, node: Lambda) -> None:
-        self._visit_function_like(node)
+        # No gating scope here (unlike `_visit_gated_function_like`): a lambda
+        # body is always a single `expr`, so it can never contain the
+        # statements this checker flags violations on -- see `_GatingScope`'s
+        # comment for why there's nothing to gate.
+        self._push_scope(_param_scope(node.args))
+        self.generic_visit(node)
+        self._pop_scope()
 
     def _scoped_generic_visit(self, node: AST) -> None:
         self._push_scope()
@@ -176,11 +286,14 @@ class _ReassignmentChecker(NodeVisitor):
     def visit_GeneratorExp(self, node: GeneratorExp) -> None:
         self._scoped_generic_visit(node)
 
+    def _record_violation(self, name_node: Name) -> None:
+        self.violations.append((name_node, self._gating_scope))
+
     def _check_and_bind(self, name_node: Name) -> None:
         name = name_node.id
         if name in self._scope.bound:
             if not self._scope.permission.get(name, False):
-                self.violations.append(name_node)
+                self._record_violation(name_node)
         else:
             self._scope.permission.setdefault(name, False)
             self._scope.bound.add(name)
@@ -206,7 +319,7 @@ class _ReassignmentChecker(NodeVisitor):
         if isinstance(node.target, Name):
             name = node.target.id
             if name in self._scope.bound and not self._scope.permission.get(name, False):
-                self.violations.append(node.target)
+                self._record_violation(node.target)
         self.generic_visit(node)
 
     def _handle_binding_target(self, target: expr) -> None:
@@ -249,15 +362,24 @@ class _Violation:
     source_lines: list[str]
 
 
-def _find_violations(path: Path) -> list[_Violation]:
+def _find_violations(path: Path, mode: UntypedMode) -> list[_Violation]:
     source = path.read_text()
-    checker = _ReassignmentChecker()
-    checker.visit(parse(source))
+    tree = parse(source)
+    if mode == "ignored" and not _file_has_any_annotation(tree):
+        return []
+
+    checker = _ReassignmentChecker(tree)
+    checker.visit(tree)
     if not checker.violations:
         return []
 
+    scopes_with_mut = _compute_scope_has_mut(tree) if mode != "strict" else set()
     source_lines = source.splitlines()
-    return [_Violation(path, target, source_lines) for target in checker.violations]
+    return [
+        _Violation(path, target, source_lines)
+        for target, scope in checker.violations
+        if mode == "strict" or id(scope) in scopes_with_mut
+    ]
 
 
 def _render(violation: _Violation, gutter_width: int) -> str:
@@ -290,8 +412,9 @@ def _render(violation: _Violation, gutter_width: int) -> str:
     gutter = " " * gutter_width
     line_str = str(line).rjust(gutter_width)
     indent = " " * (col - 1)
+    header = f"`{violation.target.id}` is reassigned without a `Mut[...]` declaration"
     return (
-        f"{BOLD}{RED}error[{_CODE}]{RESET}{BOLD}: `{violation.target.id}` is reassigned without a `Mut[...]` declaration{RESET}\n"
+        f"{BOLD}{RED}error[{_CODE}]{RESET}{BOLD}: {header}{RESET}\n"
         f"{gutter}{BOLD}{BLUE}--> {RESET}{violation.file}:{line}:{col}\n"
         f"{gutter} {BOLD}{BLUE}|{RESET}\n"
         f"{BOLD}{BLUE}{line_str} |{RESET} {source_line}\n"
@@ -299,15 +422,19 @@ def _render(violation: _Violation, gutter_width: int) -> str:
     )
 
 
-def find_unpermitted_reassignments(*paths: Path) -> list[Diagnostic]:
+def find_unpermitted_reassignments(*paths: Path, mode: UntypedMode = "permissive") -> list[Diagnostic]:
     """
     Find `Name` targets reassigned without a `Mut[...]` declaration across `paths`.
+
+    `mode` is this module's docstring's "Incremental adoption" ratchet knob
+    (`"strict"`/`"permissive"`/`"ignored"`) -- see `_find_violations` and
+    `_has_own_mut_annotation` for what each mode actually gates.
 
     All violations found across every path share one gutter width (the
     widest line number among them) -- see `_render`'s docstring for why
     that's a deliberate departure from real `ty`'s per-diagnostic sizing.
     """
-    violations = [violation for path in paths for violation in _find_violations(path)]
+    violations = [violation for path in paths for violation in _find_violations(path, mode)]
     if not violations:
         return []
 

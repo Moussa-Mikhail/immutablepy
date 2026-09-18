@@ -7,4 +7,4 @@ satisfy `Mut[list[int]]` the same as a literal `[]` would.
 
 from immutablepy import Mut
 
-x: Mut[list[int]] = list()
+x: Mut[list[int]] = list() # noqa: C408

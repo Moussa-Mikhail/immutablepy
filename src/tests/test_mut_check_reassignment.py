@@ -41,7 +41,7 @@ def test_plain_local_second_assignment_is_rejected() -> None:
 
     assert len(diagnostics) == 1
     assert diagnostics[0].code == CODE
-    assert diagnostics[0].line == 7  # the second `x = ...`, not the first
+    assert diagnostics[0].line == 11  # the second `x = ...`, not the first
 
 
 def test_parameter_reassignment_without_mut_is_rejected() -> None:
@@ -77,7 +77,7 @@ def test_nested_scope_is_isolated_but_still_checked() -> None:
 
     assert len(diagnostics) == 1
     assert diagnostics[0].code == CODE
-    assert diagnostics[0].line == 13  # inner's `x = 3`, not outer's `x = 1` or inner's `x = 2`
+    assert diagnostics[0].line == 19  # inner's `x = 3`, not outer's `x = 1` or inner's `x = 2`
 
 
 def test_comprehension_variable_is_exempt() -> None:
