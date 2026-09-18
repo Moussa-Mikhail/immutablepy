@@ -48,12 +48,8 @@ def check(*paths: str | Path) -> list["Diagnostic"]:
 
 
 def get_custom_diagnostics(paths: tuple[str | Path, ...]) -> list[Diagnostic]:
-    custom_diagnostics = []
-    for path in paths:
-        for file in _iter_python_files(Path(path)):
-            custom_diagnostics.extend(find_unpermitted_reassignments(file))
-
-    return custom_diagnostics
+    files = [file for path in paths for file in _iter_python_files(Path(path))]
+    return find_unpermitted_reassignments(*files)
 
 
 def get_ty_diagnostics(paths: tuple[str | Path, ...]) -> list[Diagnostic]:

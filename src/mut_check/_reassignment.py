@@ -68,6 +68,7 @@ from ast import (
     expr,
     parse,
 )
+from dataclasses import dataclass
 from pathlib import Path
 from typing import override
 
@@ -241,7 +242,25 @@ class _ReassignmentChecker(NodeVisitor):
         self._visit_with(node)
 
 
-def _render(file: Path, target: Name, source_lines: list[str]) -> str:
+@dataclass(frozen=True)
+class _Violation:
+    file: Path
+    target: Name
+    source_lines: list[str]
+
+
+def _find_violations(path: Path) -> list[_Violation]:
+    source = path.read_text()
+    checker = _ReassignmentChecker()
+    checker.visit(parse(source))
+    if not checker.violations:
+        return []
+
+    source_lines = source.splitlines()
+    return [_Violation(path, target, source_lines) for target in checker.violations]
+
+
+def _render(violation: _Violation, gutter_width: int) -> str:
     """
     Render this diagnostic in `ty`'s own colored style.
 
@@ -254,42 +273,53 @@ def _render(file: Path, target: Name, source_lines: list[str]) -> str:
     given diagnostic. `cli.py` strips this the same way it strips `ty`'s own
     color when stdout isn't a terminal.
 
-    The left gutter's width tracks the line number's own width (confirmed
-    against real `ty` output: a 2-digit line number widens the `|` column by
-    one space on every line, not just the numbered one) -- a fixed-width
-    gutter misaligns the `|` column as soon as a fixture's line number goes
-    multi-digit.
+    `gutter_width` is shared across every reassignment diagnostic in one
+    `check()` run (see `find_unpermitted_reassignments`), not derived from
+    this violation's own line number -- unlike real `ty`, which sizes each
+    diagnostic's gutter independently per its own line (confirmed: a
+    diagnostic spanning lines 120 and 9 uses width 3 for one location block
+    and width 1 for the other). That's fine for a single `ty`-rendered
+    diagnostic, but left every one of *our* diagnostics a different width
+    depending on which line it happened to land on, which read as visually
+    inconsistent stacked together in one `immut check` run -- forcing one
+    shared width (at least as wide as the widest line number, so nothing is
+    truncated) makes them line up instead.
     """
-    line, col = target.lineno, target.col_offset + 1
-    source_line = source_lines[line - 1] if line - 1 < len(source_lines) else ""
-    gutter = " " * len(str(line))
+    line, col = violation.target.lineno, violation.target.col_offset + 1
+    source_line = violation.source_lines[line - 1] if line - 1 < len(violation.source_lines) else ""
+    gutter = " " * gutter_width
+    line_str = str(line).rjust(gutter_width)
     indent = " " * (col - 1)
     return (
-        f"{BOLD}{RED}error[{_CODE}]{RESET}{BOLD}: `{target.id}` is reassigned without a `Mut[...]` declaration{RESET}\n"
-        f"{gutter}{BOLD}{BLUE}--> {RESET}{file}:{line}:{col}\n"
+        f"{BOLD}{RED}error[{_CODE}]{RESET}{BOLD}: `{violation.target.id}` is reassigned without a `Mut[...]` declaration{RESET}\n"
+        f"{gutter}{BOLD}{BLUE}--> {RESET}{violation.file}:{line}:{col}\n"
         f"{gutter} {BOLD}{BLUE}|{RESET}\n"
-        f"{BOLD}{BLUE}{line} |{RESET} {source_line}\n"
+        f"{BOLD}{BLUE}{line_str} |{RESET} {source_line}\n"
         f"{gutter} {BOLD}{BLUE}|{RESET} {indent}{BOLD}{RED}^{RESET}"
     )
 
 
-def find_unpermitted_reassignments(path: Path) -> list[Diagnostic]:
-    """Find `Name` targets reassigned without a `Mut[...]` declaration in `path`."""
-    source = path.read_text()
-    checker = _ReassignmentChecker()
-    checker.visit(parse(source))
-    if not checker.violations:
+def find_unpermitted_reassignments(*paths: Path) -> list[Diagnostic]:
+    """
+    Find `Name` targets reassigned without a `Mut[...]` declaration across `paths`.
+
+    All violations found across every path share one gutter width (the
+    widest line number among them) -- see `_render`'s docstring for why
+    that's a deliberate departure from real `ty`'s per-diagnostic sizing.
+    """
+    violations = [violation for path in paths for violation in _find_violations(path)]
+    if not violations:
         return []
 
-    source_lines = source.splitlines()
+    gutter_width = max(len(str(violation.target.lineno)) for violation in violations)
     return [
         Diagnostic(
             severity="error",
             code=_CODE,
-            file=path,
-            line=target.lineno,
-            col=target.col_offset + 1,
-            text=_render(path, target, source_lines),
+            file=violation.file,
+            line=violation.target.lineno,
+            col=violation.target.col_offset + 1,
+            text=_render(violation, gutter_width),
         )
-        for target in checker.violations
+        for violation in violations
     ]
