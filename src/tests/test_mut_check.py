@@ -31,10 +31,10 @@ SELF_REQUIRES_MUT_BAD = FIXTURES_DIR / "mut_check_self_requires_mut_bad.py"
 MUT_MARKER_EXPLANATION = "not assignable to element `MutMarker`"
 
 
-def test_aliased_plain_t_is_rejected_for_mut_position() -> None:
-    """`T` here is a mutable type (`list[int]`) -- aliasing genuinely matters for
-    mutable types, unlike immutable ones (see CLAUDE.md's "Immutable types always
-    satisfy Mut[T]").
+def test_plain_t_is_rejected_for_mut_position() -> None:
+    """`T` here is a mutable type (`list[int]`) -- `Mut[T]` and `T` genuinely
+    differ in what they permit for mutable types, unlike immutable ones (see
+    CLAUDE.md's "Immutable types always satisfy Mut[T]").
     """
     diagnostics = check(REJECTS_ALIASED_T)
 
@@ -110,7 +110,8 @@ def test_unpacking_without_mut_needs_no_mut() -> None:
     bindings by default." No `Mut` pre-declaration needed when the unpacked
     targets are only read afterward (see
     test_predeclared_unpacking_mutable_type_is_rejected for the case where
-    aliasing a *mutable* unpacked value is still correctly rejected).
+    a *mutable* unpacked value's already-committed plain type is still
+    correctly rejected).
     """
     diagnostics = check(UNPACKING_WITHOUT_MUT)
     text = diagnostics_text(diagnostics)
@@ -121,7 +122,7 @@ def test_unpacking_without_mut_needs_no_mut() -> None:
 
 def test_predeclared_unpacking_mutable_type_is_rejected() -> None:
     """Same shape as above, but `list[int]` isn't on the immutable allowlist, so
-    aliasing it via unpacking is still correctly rejected.
+    its already-committed plain type via unpacking is still correctly rejected.
     """
     diagnostics = check(PREDECLARED_UNPACKING_MUTABLE)
     text = diagnostics_text(diagnostics)

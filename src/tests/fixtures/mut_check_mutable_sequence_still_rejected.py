@@ -1,9 +1,10 @@
 """Control case: `MutableSequence` is not exempt.
 
 Unlike `Sequence`, `MutableSequence[T]` declares mutating members
-(`__setitem__`, `insert`, ...) in its own definition -- aliasing a
-`MutableSequence[int]` genuinely matters, since the callee could restructure
-it through those members. The read-only-abstract-type exemption (see
+(`__setitem__`, `insert`, ...) in its own definition -- `Mut[MutableSequence[int]]`
+genuinely permits more than plain `MutableSequence[int]` does (restructuring
+through those members), so `y`'s already-committed plain type doesn't
+satisfy it. The read-only-abstract-type exemption (see
 mut_check_immutable_abstract_sequence.py) must not extend to it.
 """
 

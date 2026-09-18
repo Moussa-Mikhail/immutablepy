@@ -1,19 +1,25 @@
 """
-Suppress `ty`'s immutable-type aliasing false positive.
+Suppress `ty`'s immutable-type false positive.
 
-Per CLAUDE.md's "Immutable types always satisfy `Mut[T]`, aliased or not": a
-value of a type with no mutating members in its own definition (`int`,
-`tuple`, `Sequence`, ...) must satisfy a `Mut[T]` position unconditionally --
-fresh or aliased, it doesn't matter, since nothing can mutate it through any
-reference. `ty` has no notion of this exemption, so it rejects the aliased
-case the same as a genuinely mutable one; this module corrects that after
-the fact.
+Per CLAUDE.md's "Immutable types always satisfy `Mut[T]`": a value of a type
+with no mutating members in its own definition (`int`, `tuple`, `Sequence`,
+...) must satisfy a `Mut[T]` position unconditionally, regardless of where
+it came from -- a fresh literal or a `Name` pointing to an existing binding,
+it makes no difference. This isn't about aliasing (`Mut` tracks per-binding
+permission, not object uniqueness -- see `_filter`'s docstring); it's that
+for a type with zero mutating operations, `Mut[T]` and `T` grant exactly the
+same set of possible operations. There's no permission gap for `Mut[T]` to
+protect in the first place, so the `MutMarker` mismatch `ty` reports for
+these types is a structural artifact of the intersection encoding (which has
+no way to see "this type has no mutating members at all"), not a meaningful
+constraint. This module corrects that after the fact.
 
-Unlike `_filter.filter_construction_exemption` (which must inspect the
-source AST to tell a fresh literal from an aliased reference), this
-exemption doesn't care how the value was produced -- only its type. So
-instead of AST analysis, this reads the type straight out of `ty`'s own
-diagnostic. Most of the time that's the info line naming the source type as
+Unlike `_filter.filter_construction_exemption` (which cares whether a value
+has a prior type commitment, and so must inspect the source AST), this
+exemption doesn't care how the value was produced or where it came from --
+only its type. So instead of AST analysis, this reads the type straight out
+of `ty`'s own diagnostic. Most of the time that's the info line naming the
+source type as
 not assignable to element `MutMarker` (e.g. "type `int` is not assignable to
 element `MutMarker` of intersection `int & MutMarker`"). But per CLAUDE.md's
 "Hybrid enforcement" note, for-loop/`with` pre-declared targets -- and, as it
@@ -90,5 +96,5 @@ def _is_immutable_type_false_positive(diagnostic: Diagnostic) -> bool:
 
 
 def filter_immutable_type_exemption(diagnostics: list[Diagnostic]) -> Mut[list[Diagnostic]]:
-    """Drop diagnostics that are exactly `ty`'s immutable-type aliasing false positive."""
+    """Drop diagnostics that are exactly `ty`'s immutable-type false positive."""
     return [d for d in diagnostics if not _is_immutable_type_false_positive(d)]

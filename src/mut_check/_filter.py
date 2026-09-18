@@ -4,43 +4,59 @@ Suppress `ty`'s construction/literal false positive.
 `ty` natively enforces `Mut[T] <: T`, but rejects the reverse -- a plain
 value assigned where `Mut[T]` is expected -- because the value genuinely
 lacks `MutMarker`. Per CLAUDE.md's construction exemption: an object created
-in the current scope can be assigned/passed/returned as `Mut`, since it's
-provably unaliased at that point -- nothing else could hold a reference to
-it yet. `ty` has no notion of this, so this module corrects the diagnostics
-after the fact: for each diagnostic on a `Mut[...]` target/parameter/return
-type, check whether the *exact expression `ty` flagged* is one of these
-"freshly created" node types, regardless of the syntactic role it plays
-(assignment RHS, `return` value, call argument, ...) -- `ty` always points
-its diagnostic at that expression's own position, so matching purely on
-position generalizes across all three uniformly, with no need to handle
-`AnnAssign`/`Return`/`Call` as separate cases:
+in the current scope can be assigned/passed/returned as `Mut`. This has
+nothing to do with aliasing -- `Mut` is a per-binding permission that flows
+through ordinary type-checking, not a uniqueness/exclusivity guarantee
+(Rust's `&mut`, explicitly rejected in CLAUDE.md's "Core model"); it says
+nothing about whether some *other* binding also has `Mut` on the same
+object. The real question is simpler: has this expression's type already
+been committed by an earlier declaration, or is this its first appearance?
+A `Name` reference already has a type fixed by wherever it was declared --
+using it where `Mut[T]` is required is an ordinary type mismatch if that
+declared type isn't `Mut[T]` (`list[int]` is not a subtype of
+`Mut[list[int]]`). A literal, comprehension, or language-guaranteed-fresh
+construction call has no such prior commitment -- it's being typed for the
+first time, right at this exact use site, free to satisfy whatever the
+context needs, the same way `x: float = 5` works even though `5` is
+literally an `int`. `ty` has no notion of this, so this module corrects the
+diagnostics after the fact: for each diagnostic on a `Mut[...]`
+target/parameter/return type, check whether the *exact expression `ty`
+flagged* is one of these "no prior commitment" node types, regardless of
+the syntactic role it plays (assignment RHS, `return` value, call argument,
+...) -- `ty` always points its diagnostic at that expression's own
+position, so matching purely on position generalizes across all three
+uniformly, with no need to handle `AnnAssign`/`Return`/`Call` as separate
+cases:
 
 - Literal displays: `ast.Constant`/`List`/`Dict`/`Set`/`Tuple`.
-- Comprehensions/generator expressions -- the resulting container is a
-  reference nothing else can have yet, by the same reasoning as a literal.
+- Comprehensions/generator expressions -- the resulting container has no
+  prior type commitment either, by the same reasoning as a literal.
 - Class-instantiation calls only, not arbitrary function calls. Instantiating
   a class has a *language-level* freshness guarantee (`__new__` always
-  allocates, whatever `__init__` does with it) that an arbitrary function's
-  return value simply doesn't have -- confirmed this distinction matters
-  directly, not just in theory: an earlier version of this module treated
-  *any* bare-name call as fresh, which meant inferring freshness for
-  `get_values()` (an ordinary function) from its *implementation* (`return
-  [1], [2]`, which happens to construct fresh lists) rather than from its
-  *declared return type* (`tuple[list[int], list[int]]`, plain, no `Mut`
-  anywhere) -- exactly the kind of body-inference this design's "no
-  implicit inference from bodies" stance (see "Methods and per-field
-  mutability" above) already rejects elsewhere, just not caught here until
-  someone pointed out this fixture's premise didn't hold up. So only
-  locally-`class`-defined names and the built-in mutable-container
-  constructors (`list`, `dict`, `set`, `bytearray`) count -- not just any
-  callable, and not method calls (`obj.method(...)`, i.e. `Call.func` is an
-  `Attribute`): the call's own AST position coincides with the *receiver*
-  `obj`'s position, not with anything the call itself returns. Confirmed
-  this matters too -- `c.increment()` on a plain (non-`Mut`) receiver `c`,
-  calling a method requiring `self: Mut[Self]`, produces a diagnostic at
-  that same coinciding position; treating every `Call` as fresh incorrectly
-  exempted it, since the receiver `c` is genuinely aliased and not fresh
-  at all.
+  allocates, whatever `__init__` does with it); an arbitrary function's
+  return value has no such guarantee -- its type is whatever its *signature*
+  declares, which is a real prior commitment, regardless of what the body
+  happens to do internally. Confirmed this distinction matters directly, not
+  just in theory: an earlier version of this module treated *any* bare-name
+  call as fresh, which meant inferring freshness for `get_values()` (an
+  ordinary function) from its *implementation* (`return [1], [2]`, which
+  happens to construct fresh lists) rather than from its *declared return
+  type* (`tuple[list[int], list[int]]`, plain, no `Mut` anywhere) -- exactly
+  the kind of body-inference this design's "no implicit inference from
+  bodies" stance (see "Methods and per-field mutability" above) already
+  rejects elsewhere, just not caught here until someone pointed out this
+  fixture's premise didn't hold up. So only locally-`class`-defined names and
+  the built-in mutable-container constructors (`list`, `dict`, `set`,
+  `bytearray`) count -- not just any callable, and not method calls
+  (`obj.method(...)`, i.e. `Call.func` is an `Attribute`): the call's own AST
+  position coincides with the *receiver* `obj`'s position, not with anything
+  the call itself returns. Confirmed this matters too -- `c.increment()` on
+  a plain (non-`Mut`) receiver `c`, calling a method requiring `self:
+  Mut[Self]`, produces a diagnostic at that same coinciding position;
+  treating every `Call` as fresh incorrectly exempted it. The reason it's
+  wrong isn't that `c` is "aliased" -- it's that `c`'s type was already
+  fixed as plain `Counter` by its own declaration (e.g. a function
+  parameter), the same reason a `Name` reference is never exempt.
 
 `for`/`with` target bindings (`for x in ...:`, `with ... as x:`) get the
 same treatment for a different reason: per CLAUDE.md's "Pre-declaration for

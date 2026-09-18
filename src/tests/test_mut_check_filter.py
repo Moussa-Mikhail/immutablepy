@@ -2,12 +2,13 @@
 """`mut_check`'s diagnostic filter must suppress the construction/literal false positive.
 
 Per CLAUDE.md's construction exemption, an object created in the current
-scope can be assigned/passed/returned as `Mut` -- it's provably unaliased at
-that point. A fresh literal/constructor call/comprehension in a `Mut[T]`
-position must type-check clean through `mut_check` -- even though the
-underlying checker rejects it for lacking `MutMarker` (see test_mut_check.py's
-`test_aliased_plain_t_is_rejected_for_mut_position` for a true positive the
-filter must never touch).
+scope can be assigned/passed/returned as `Mut` -- it has no prior type
+commitment, so it's free to satisfy whatever the context needs. A fresh
+literal/constructor call/comprehension in a `Mut[T]` position must
+type-check clean through `mut_check` -- even though the underlying checker
+rejects it for lacking `MutMarker` (see test_mut_check.py's
+`test_plain_t_is_rejected_for_mut_position` for a true positive the filter
+must never touch).
 
 Per `mut_check._filter`, this applies uniformly to assignment, `return`
 values, and call arguments (`ty` always points its diagnostic at the fresh

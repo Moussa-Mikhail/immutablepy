@@ -1,15 +1,16 @@
-"""`mut_check`'s diagnostic filter must suppress the immutable-type aliasing false positive.
+"""`mut_check`'s diagnostic filter must suppress the immutable-type false positive.
 
-Per CLAUDE.md's "Immutable types always satisfy `Mut[T]`, aliased or not": a
-value of an immutable type satisfies a `Mut[T]` position unconditionally,
-whether freshly constructed or an aliased reference from anywhere -- there's
-no mutation hazard for a type nothing can be mutated through. This
-supersedes the general aliasing rejection for immutable types specifically;
-contrast with test_mut_check.py's test_aliased_plain_t_is_rejected_for_mut_position,
-which uses `list[int]` (genuinely mutable) and must remain rejected. It's
-also a separate exemption from the construction/literal one in
-test_mut_check_filter.py -- driven by the *type* being immutable, not by the
-value being freshly constructed.
+Per CLAUDE.md's "Immutable types always satisfy `Mut[T]`": a value of an
+immutable type satisfies a `Mut[T]` position unconditionally, whether
+freshly constructed or a plain reference already committed to that type by
+an earlier declaration -- there's no permission gap for a type nothing can
+be mutated through. This supersedes the general rejection for immutable
+types specifically; contrast with test_mut_check.py's
+test_plain_t_is_rejected_for_mut_position, which uses `list[int]`
+(genuinely mutable) and must remain rejected. It's also a separate
+exemption from the construction/literal one in test_mut_check_filter.py --
+driven by the *type* being immutable, not by the value being freshly
+constructed.
 
 Per CLAUDE.md's "Generalizes to read-only abstract types": the exemption
 isn't limited to the fixed concrete-type list -- it covers any type with no
@@ -61,9 +62,10 @@ def test_tuple_of_immutables_satisfies_mut() -> None:
 
 def test_tuple_is_exempt_regardless_of_element_mutability() -> None:
     """A tuple has no mutating operations at all, so it's exempt even when one
-    of its elements is a mutable type -- aliasing the tuple binding can never
-    expose a way to restructure it. Mutating the element itself is a separate
-    concern governed by that element's own `Mut` annotation.
+    of its elements is a mutable type -- nothing about the tuple binding
+    itself can ever expose a way to restructure it. Mutating the element
+    itself is a separate concern governed by that element's own `Mut`
+    annotation.
     """
     diagnostics = check(TUPLE_WITH_MUTABLE_ELEMENT)
 

@@ -159,20 +159,26 @@ assignment). Scoping (function/lambda/class/comprehension) matches real Python r
 `global`/`nonlocal` aren't modeled, so an unmodeled name is never flagged (false
 negatives preferred over false positives for a first pass).
 
-### Immutable types always satisfy `Mut[T]`, aliased or not
+### Immutable types always satisfy `Mut[T]`
 
 A value of an immutable type (`int`, `str`, `bytes`, `float`, `bool`, `complex`,
 `frozenset`, `tuple`, ...) is special-cased to always be assignable/passable to a
-`Mut[T]` position, whether it's freshly constructed or an aliased reference from
-anywhere — there's no mutation hazard to protect against, since nothing can mutate an
-immutable value through any reference. This supersedes treating an aliased plain `int`
-passed where `Mut[int]` is expected as a rejection; that's no longer correct.
+`Mut[T]` position, regardless of where it came from — a fresh literal or a `Name`
+pointing to an existing binding, it makes no difference. This isn't about aliasing:
+`Mut` tracks per-binding permission, not object uniqueness or exclusivity (it's not
+Rust's `&mut` — see "Core model"), and says nothing about whether some *other* binding
+also has `Mut` on the same object. The actual reason: for a type with zero mutating
+operations, `Mut[T]` and `T` grant exactly the same set of possible operations — there
+is no permission gap for `Mut[T]` to protect in the first place. This supersedes
+treating a plain `int` passed where `Mut[int]` is expected as a rejection; that's no
+longer correct.
 
 `tuple` qualifies regardless of its element types — `tuple[list[int], int]` is exempt
 the same as `tuple[int, str]`, since a tuple itself has no mutating operations at all
-(no item assignment, no `append`/`pop`); aliasing the tuple binding can never expose a
-way to restructure it. Mutating an element reached through the tuple (e.g. the `list`
-inside `tuple[list[int], int]`) is governed by that element's own `Mut` annotation
+(no item assignment, no `append`/`pop`); nothing about the tuple binding itself can
+ever expose a way to restructure it, regardless of how many bindings point to it.
+Mutating an element reached through the tuple (e.g. the `list` inside
+`tuple[list[int], int]`) is governed by that element's own `Mut` annotation
 (`tuple[Mut[list[int]], int]`), independent of whether the tuple binding itself needed
 `Mut` — the same compositional split as "Container content mutability is compositional"
 below, just starting from a container that's unconditionally immutable itself.
@@ -199,26 +205,40 @@ declaration. What changes is only the *other direction* — once something requi
 
 This also means the typeshed/`__builtins__.pyi` stubbing route (see "Stdlib and
 third-party support") is only needed for genuinely **mutable** stdlib types (`list`,
-`dict`, `set`, `bytearray`, ...), where a returned value's aliasing actually matters.
-Immutable-type dunders like `int.__add__` don't need `Mut`-aware return-type stubs at
-all — the special case makes that unnecessary regardless of what the method returns.
+`dict`, `set`, `bytearray`, ...), where `Mut[T]` and `T` genuinely differ in what they
+permit. Immutable-type dunders like `int.__add__` don't need `Mut`-aware return-type
+stubs at all — the special case makes that unnecessary regardless of what the method
+returns.
 
 ### Constructors and literals satisfy `Mut` positions
 
-An object created in the current scope can be assigned/passed/returned as `Mut` —
-provably unaliased at that point, nothing else could hold a reference yet. This is the
-same construction-time exemption as for fields, generalized: `x: Mut[list[int]] = [1,
-2, 3]` (assignment), `def f() -> Mut[Box]: return Box()` (return value),
-`f(Box())` where `f`'s parameter is `Mut[Box]` (call argument) — `ty` always points its
-false-positive diagnostic at the fresh expression's own position regardless of which of
-these three it is, so `mut_check._filter.filter_construction_exemption` matches purely
-on position, with no need to special-case `AnnAssign`/`Return`/`Call` separately.
-Literal displays and comprehensions/generator expressions always count as fresh.
-Calls are narrower — only **class-instantiation calls**, not arbitrary function calls:
-instantiating a class has a *language-level* freshness guarantee (`__new__` always
-allocates, whatever `__init__` does with it) that an arbitrary function's return value
-doesn't have. An earlier version treated any bare-name call as fresh, which meant
-inferring freshness for `get_values()` (an ordinary function) from its *implementation*
+An object created in the current scope can be assigned/passed/returned as `Mut`. This
+is not an aliasing argument — `Mut` is a per-binding permission that flows through
+ordinary type-checking, not a uniqueness/exclusivity guarantee (see "Core model"; this
+isn't Rust's `&mut`), and it says nothing about whether some *other* binding also has
+`Mut` on the same object. The actual question is whether this expression's type has
+already been committed by an earlier declaration, or whether this is its first
+appearance. A `Name` reference already has a type fixed by wherever it was declared —
+using it where `Mut[T]` is required is an ordinary type mismatch if that declared type
+isn't `Mut[T]`. A literal, comprehension, or language-guaranteed-fresh construction
+call has no such prior commitment — it's being typed for the first time, right at this
+exact use site, free to satisfy whatever the context needs, the same way `x: float = 5`
+works even though `5` is literally an `int`. This is the same construction-time
+exemption as for fields, generalized: `x: Mut[list[int]] = [1, 2, 3]` (assignment),
+`def f() -> Mut[Box]: return Box()` (return value), `f(Box())` where `f`'s parameter is
+`Mut[Box]` (call argument) — `ty` always points its false-positive diagnostic at the
+expression's own position regardless of which of these three it is, so
+`mut_check._filter.filter_construction_exemption` matches purely on position, with no
+need to special-case `AnnAssign`/`Return`/`Call` separately.
+
+Literal displays and comprehensions/generator expressions always count as having no
+prior commitment. Calls are narrower — only **class-instantiation calls**, not
+arbitrary function calls: instantiating a class has a *language-level* freshness
+guarantee (`__new__` always allocates, whatever `__init__` does with it); an arbitrary
+function's return value has no such guarantee — its type is whatever its *signature*
+declares, a real prior commitment regardless of what the body does internally. An
+earlier version treated any bare-name call as having no prior commitment, which meant
+inferring that for `get_values()` (an ordinary function) from its *implementation*
 (happened to construct fresh lists) rather than its *declared return type* (plain, no
 `Mut` anywhere) — exactly the "no implicit inference from bodies" mistake this design
 already rejects elsewhere (see "Methods and per-field mutability" above), just not
@@ -228,19 +248,22 @@ mutable-container constructor (`list`, `dict`, `set`, `bytearray`) — immutable
 constructors aren't needed here since `_immutable` already exempts those by type name
 regardless of origin. **Except** method calls (`obj.method(...)`): the call's own AST
 position coincides with the *receiver* `obj`'s, not with anything the call returns, so
-treating every call as fresh wrongly exempted `c.increment()` on a plain, genuinely
-aliased receiver `c` (confirmed as a real overreach bug too). Also confirmed: matching
-on any `Mut[` mention anywhere in a diagnostic's text is too broad, since a Protocol
-structural mismatch (see "Protocols" above) can mention `Mut[` three levels deep inside
-a `└──` tree explaining an unrelated per-field type mismatch — the filter only matches
-non-nested lines.
+treating every call as fresh wrongly exempted `c.increment()` on a plain receiver `c`
+— not because `c` is "aliased," but because `c`'s type was already fixed as plain
+`Counter` by its own declaration (e.g. a function parameter), the same reason a `Name`
+reference is never exempt (confirmed as a real overreach bug too). Also confirmed:
+matching on any `Mut[` mention anywhere in a diagnostic's text is too broad, since a
+Protocol structural mismatch (see "Protocols" above) can mention `Mut[` three levels
+deep inside a `└──` tree explaining an unrelated per-field type mismatch — the filter
+only matches non-nested lines.
 
 This can't distinguish a constructor that returns fresh state from one that returns a
 cached/shared object — same structural-typing tradeoff the rest of this design already
-makes. Not covered: a `Name` referring to a value obtained earlier (even from a fresh
-call) — only the call/literal/comprehension's own position is exempt, not every later
-reference to whatever it produced; or calls to imported/external classes (only
-locally-`class`-defined names are recognized, a static AST check, not a name lookup).
+makes. Not covered: a `Name` referring to a value obtained earlier (even from a
+class-instantiation call) — only the call/literal/comprehension's own position has no
+prior commitment, not every later reference to whatever it produced; or calls to
+imported/external classes (only locally-`class`-defined names are recognized, a static
+AST check, not a name lookup).
 
 ### Pre-declaration for loops, unpacking, and `with`
 
