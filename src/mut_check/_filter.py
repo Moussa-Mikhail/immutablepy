@@ -69,8 +69,10 @@ via `reveal_type`). Real enforcement of "does the iterable's element
 actually carry `Mut`" is a different, not-yet-built question for the custom
 pass, not something this diagnostic ever answered.
 
-The message check only searches lines *not* nested under a `└──` tree
-marker. Confirmed this matters too: a class with a plain field failing to
+The message check runs against an ANSI-stripped copy of the text (`ty` is
+invoked with `--color=always`, per `_ansi`'s docstring, and its color codes
+land inside the literal message, not just around it) and only searches
+lines *not* nested under a `└──` tree marker. Confirmed this matters too: a class with a plain field failing to
 satisfy a `Mut`-declaring `Protocol` (see CLAUDE.md's "Protocols" section)
 produces a diagnostic whose *only* `Mut[` mention is three levels deep in
 such a tree (`Locked` incompatible with `HasValue` because member `value`
@@ -90,6 +92,7 @@ import re
 from typing import TypeIs
 
 from immutablepy import Mut
+from mut_check._ansi import strip_ansi
 from mut_check._diagnostics import Diagnostic
 
 _MUT_TARGET_MESSAGE = re.compile(r"(?:is not assignable to|[Ee]xpected) `Mut\[")
@@ -152,7 +155,8 @@ def _construction_exempt_locations(source: str) -> set[tuple[int, int]]:
 
 def _has_mut_target_message(text: str) -> bool:
     return any(
-        _MUT_TARGET_MESSAGE.search(line) and not _NESTED_TREE_LINE.search(line) for line in text.splitlines()
+        _MUT_TARGET_MESSAGE.search(line) and not _NESTED_TREE_LINE.search(line)
+        for line in strip_ansi(text).splitlines()
     )
 
 

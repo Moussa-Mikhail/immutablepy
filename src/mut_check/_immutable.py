@@ -21,8 +21,13 @@ only its type. So instead of AST analysis, this reads the type straight out
 of `ty`'s own diagnostic. Most of the time that's the info line naming the
 source type as
 not assignable to element `MutMarker` (e.g. "type `int` is not assignable to
-element `MutMarker` of intersection `int & MutMarker`"). But per CLAUDE.md's
-"Hybrid enforcement" note, for-loop/`with` pre-declared targets -- and, as it
+element `MutMarker` of intersection `int & MutMarker`").
+
+Matched against an ANSI-stripped copy of the text -- `ty` is invoked with
+`--color=always` (per `_ansi`'s docstring), and its color codes land inside
+the literal message (e.g. between `info` and `:`), not just around it.
+
+Per CLAUDE.md's "Hybrid enforcement" note, for-loop/`with` pre-declared targets -- and, as it
 turns out, augmented assignment (`total += i`) -- raise the same
 `invalid-assignment` code without that info line at all (confirmed: `total:
 Mut[int] = 0; total += i` inside a loop produces "Object of type `int` is
@@ -41,6 +46,7 @@ diagnostic codes this exemption is known to matter for.
 import re
 
 from immutablepy import Mut
+from mut_check._ansi import strip_ansi
 from mut_check._diagnostics import Diagnostic
 
 _MUT_MARKER_TYPE = re.compile(r"info: type `(?P<type>[^`]+)` is not assignable to element `MutMarker`")
@@ -91,7 +97,8 @@ def _base_type_name(type_text: str) -> str:
 def _is_immutable_type_false_positive(diagnostic: Diagnostic) -> bool:
     if diagnostic.code not in _EXEMPT_CODES:
         return False
-    match = _MUT_MARKER_TYPE.search(diagnostic.text) or _PRIMARY_MESSAGE_TYPE.search(diagnostic.text)
+    text = strip_ansi(diagnostic.text)
+    match = _MUT_MARKER_TYPE.search(text) or _PRIMARY_MESSAGE_TYPE.search(text)
     return match is not None and _base_type_name(match["type"]) in _IMMUTABLE_TYPE_NAMES
 
 

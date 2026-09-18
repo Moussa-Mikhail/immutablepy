@@ -71,6 +71,7 @@ from ast import (
 from pathlib import Path
 from typing import override
 
+from mut_check._ansi import BLUE, BOLD, RED, RESET
 from mut_check._diagnostics import Diagnostic
 
 _CODE = "reassignment-without-mut"
@@ -241,15 +242,34 @@ class _ReassignmentChecker(NodeVisitor):
 
 
 def _render(file: Path, target: Name, source_lines: list[str]) -> str:
+    """
+    Render this diagnostic in `ty`'s own colored style.
+
+    This pass has no `ty` output to inherit color from (per this module's
+    docstring, its diagnostics don't come from `ty` at all), so it applies
+    `ty`'s own color scheme directly -- bold-red header, bold-blue location/
+    pipe lines, bold-red pointer -- matching `--color=always` `ty` output
+    byte-for-byte in style (confirmed against real `ty` diagnostics), so
+    `immut check`'s output looks uniform regardless of which pass produced a
+    given diagnostic. `cli.py` strips this the same way it strips `ty`'s own
+    color when stdout isn't a terminal.
+
+    The left gutter's width tracks the line number's own width (confirmed
+    against real `ty` output: a 2-digit line number widens the `|` column by
+    one space on every line, not just the numbered one) -- a fixed-width
+    gutter misaligns the `|` column as soon as a fixture's line number goes
+    multi-digit.
+    """
     line, col = target.lineno, target.col_offset + 1
     source_line = source_lines[line - 1] if line - 1 < len(source_lines) else ""
-    pointer = " " * (col - 1) + "^"
+    gutter = " " * len(str(line))
+    indent = " " * (col - 1)
     return (
-        f"error[{_CODE}]: `{target.id}` is reassigned without a `Mut[...]` declaration\n"
-        f" --> {file}:{line}:{col}\n"
-        f"  |\n"
-        f"{line} | {source_line}\n"
-        f"  | {pointer}"
+        f"{BOLD}{RED}error[{_CODE}]{RESET}{BOLD}: `{target.id}` is reassigned without a `Mut[...]` declaration{RESET}\n"
+        f"{gutter}{BOLD}{BLUE}--> {RESET}{file}:{line}:{col}\n"
+        f"{gutter} {BOLD}{BLUE}|{RESET}\n"
+        f"{BOLD}{BLUE}{line} |{RESET} {source_line}\n"
+        f"{gutter} {BOLD}{BLUE}|{RESET} {indent}{BOLD}{RED}^{RESET}"
     )
 
 
