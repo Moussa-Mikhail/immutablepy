@@ -11,6 +11,6 @@ cd "$(dirname "$0")"
 to_check="src/immutablepy src/mut_check src/tests/*.py"
 
 uv run ty check $to_check
-uv run ruff check $to_check
+uv run ruff check src
 uv run immut check $to_check
 uv run pytest
