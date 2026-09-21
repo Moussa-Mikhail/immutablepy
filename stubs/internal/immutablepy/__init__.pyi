@@ -12,17 +12,15 @@ The reverse direction — plain `T` rejected where `Mut[T]` is expected because
 it lacks `MutMarker` — is a real `ty` diagnostic that the tool's custom filter
 suppresses, since plain values should satisfy `Mut` positions in this system.
 """
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
+from collections.abc import Callable
 
-    from ty_extensions import Intersection
+from ty_extensions import Intersection
 
-    class MutMarker: ...
+class MutMarker: ...
 
-    # noinspection type-hints
-    type Mut[T] = Intersection[T, MutMarker]
+# noinspection type-hints
+type Mut[T] = Intersection[T, MutMarker]
 
-    def mut_method[F: Callable[..., object]](method: F) -> F: ...
-    def mut[T](value: T) -> Mut[T]: ...
+def mut_method[F: Callable[..., object]](method: F) -> F: ...
+def mut[T](value: T) -> Mut[T]: ...

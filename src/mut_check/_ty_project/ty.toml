@@ -2,12 +2,25 @@
 # of the plain public immutablepy module. This is how mut_check gets ty to
 # natively enforce Mut[T] <: T -- see CLAUDE.md's "Private ty backend" and
 # "Intersection types" sections.
+#
+# Also points ty at a patched fork of its own vendored typeshed
+# (stubs/typeshed/) instead of the embedded default, so that list/dict/set's
+# mutating methods can be marked Mut-aware. See docs/decisions.md's "Stdlib
+# and third-party support" for the full confirmation trail, including two
+# non-obvious things a custom typeshed requires to behave correctly:
+#   - `root` must exclude stubs/typeshed/ (narrowed to src/ here) -- ty
+#     otherwise discovers it a second time as ordinary first-party files (in
+#     addition to its role as the designated typeshed), producing two
+#     competing `list` definitions and breaking legacy-generic resolution
+#     project-wide.
+#   - stubs/typeshed/stdlib/ needs its own real ty_extensions.pyi (added
+#     directly, not via extra-paths) -- `ty`'s hardcoded resolution of the
+#     synthetic `ty_extensions` module (which `Mut`'s `Intersection` is
+#     built on) only kicks in for the *default* embedded typeshed; under a
+#     custom one it falls back to genuine file lookup, and without a real
+#     file `Mut[list[int]]` silently degrades to `Unknown` project-wide.
 [environment]
 python-version = "3.13"
 extra-paths = ["../../../stubs/internal"]
-# Without this, ty treats this file's own directory (_ty_project/) as the
-# first-party root -- since there's no pyproject.toml here to walk up past --
-# which breaks resolving anything outside it (e.g. src/tests/_checkers.py's
-# bare import, which relies on src-layout auto-detection rooted at the real
-# repo root).
-root = ["../../.."]
+typeshed = "../../../stubs/typeshed"
+root = ["../../../src"]
