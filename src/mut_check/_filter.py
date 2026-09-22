@@ -136,9 +136,7 @@ def _construction_exempt_locations(source: str) -> set[tuple[int, int]]:
     argument, ...), and `for`/`with` target names.
     """
     tree = ast.parse(source)
-    constructor_names = _BUILTIN_CONSTRUCTORS | {
-        node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
-    }
+    constructor_names = _BUILTIN_CONSTRUCTORS | {node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
 
     locations = set()
     for node in ast.walk(tree):

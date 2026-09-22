@@ -56,37 +56,39 @@ _PRIMARY_MESSAGE_TYPE = re.compile(
 
 _EXEMPT_CODES = frozenset({"invalid-assignment", "invalid-argument-type"})
 
-_IMMUTABLE_TYPE_NAMES = frozenset({
-    # `ty` infers literal expressions as `Literal[1]`/`Literal["x"]`/etc, not
-    # their concrete type -- but per PEP 586, `Literal` only ever holds int,
-    # str, bytes, bool, or an enum member, all immutable regardless of which.
-    "Literal",
-    # Concrete: no mutating operations exist on these types, regardless of
-    # what a generic parameter (e.g. tuple's elements) holds.
-    "int",
-    "str",
-    "bytes",
-    "float",
-    "bool",
-    "complex",
-    "frozenset",
-    "tuple",
-    # Read-only abstract types: no mutating members in their own definition.
-    # Their `Mutable*` counterparts (MutableSequence, MutableMapping,
-    # MutableSet) are deliberately absent -- those do declare them.
-    "Sequence",
-    "Mapping",
-    "Collection",
-    "Iterable",
-    "Iterator",
-    "Container",
-    "Sized",
-    "Hashable",
-    "Reversible",
-    "KeysView",
-    "ValuesView",
-    "ItemsView",
-})
+_IMMUTABLE_TYPE_NAMES = frozenset(
+    {
+        # `ty` infers literal expressions as `Literal[1]`/`Literal["x"]`/etc, not
+        # their concrete type -- but per PEP 586, `Literal` only ever holds int,
+        # str, bytes, bool, or an enum member, all immutable regardless of which.
+        "Literal",
+        # Concrete: no mutating operations exist on these types, regardless of
+        # what a generic parameter (e.g. tuple's elements) holds.
+        "int",
+        "str",
+        "bytes",
+        "float",
+        "bool",
+        "complex",
+        "frozenset",
+        "tuple",
+        # Read-only abstract types: no mutating members in their own definition.
+        # Their `Mutable*` counterparts (MutableSequence, MutableMapping,
+        # MutableSet) are deliberately absent -- those do declare them.
+        "Sequence",
+        "Mapping",
+        "Collection",
+        "Iterable",
+        "Iterator",
+        "Container",
+        "Sized",
+        "Hashable",
+        "Reversible",
+        "KeysView",
+        "ValuesView",
+        "ItemsView",
+    }
+)
 
 
 def _base_type_name(type_text: str) -> str:

@@ -111,11 +111,7 @@ _GatingScope = Module | FunctionDef | AsyncFunctionDef
 
 
 def _is_mut_annotation(annotation: expr) -> bool:
-    return (
-        isinstance(annotation, Subscript)
-        and isinstance(annotation.value, Name)
-        and annotation.value.id == "Mut"
-    )
+    return isinstance(annotation, Subscript) and isinstance(annotation.value, Name) and annotation.value.id == "Mut"
 
 
 def _flatten_name_targets(target: expr) -> list[Name]:
