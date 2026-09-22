@@ -435,11 +435,32 @@ patched typeshed fork's `list` stub, both around `self`-typed dunders under our
    backend no matter how the stub is written, for a receiver that should legitimately
    permit it. Blocks the natural syntax for indexed mutation entirely; the only
    working spelling is the explicit dunder call, which isn't viable as real guidance.
-   No `mut_check` custom-pass workaround attempted yet (would need to special-case
-   subscript-assignment nodes the way `_filter`/`_immutable` special-case other `ty`
-   false positives) — flagged here as a design gap, not yet added to CLAUDE.md's
-   "Open" list pending a decision on whether to work around it or wait on upstream
-   `ty`.
+
+   **A `mut_check`-layer suppression (like `_filter`/`_immutable`'s) was tried and
+   reverted -- confirmed unsound, not just incomplete.** The idea: key off `ty`'s own
+   confirming info line, "The full type of the subscripted object is `Mut[...]`"
+   (present, confirmed, only when the receiver's declared type actually includes
+   `Mut` -- a plain, correctly-rejected receiver never produces it, checked directly
+   including through an attribute chain). That line only speaks to the *receiver's*
+   permission, though, and `ty`'s subscript-assignment resolution turns out to be
+   broken wholesale once the receiver carries `MutMarker` -- it doesn't get far enough
+   to validate the *assigned value* at all in that case, so a genuinely bad assignment
+   produces the exact same diagnostic shape as the false positive. Confirmed three
+   ways, escalating: `l[0] = user` where `l: Mut[list[Mut[User]]]` and `user: User`
+   (plain -- should reject on the *element* not carrying `Mut`, per "container
+   mutability is compositional") got silently swept up alongside the legitimate
+   `l[0] = mut_user` case; then, worse, `xs[0] = "wrong type"` where
+   `xs: Mut[list[int]]` -- an ordinary, `Mut`-unrelated type mismatch with nothing to
+   do with permissions at all -- also vanished. Suppressing on this signal doesn't
+   distinguish "only rejected because of the bug" from "correctly rejected" because
+   `ty` itself can't reach that determination once this path is taken; there is no
+   textual signal in the diagnostic to recover it from after the fact. Reverted
+   in full (the `mut_check._subscript` module, its wiring, and the fixtures/tests
+   that went with it) rather than shipped in a narrower, still-unsound form.
+   Explicit dunder calls remain the only sound spelling for subscript-assignment on
+   a `Mut`-typed receiver until `ty` fixes this upstream -- not added to CLAUDE.md's
+   "Open" list as actionable, since there's no known-safe next step, only "wait on
+   upstream `ty`."
 
 ## Untyped-code handling — how the modes were chosen
 
