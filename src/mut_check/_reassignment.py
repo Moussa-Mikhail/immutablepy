@@ -94,6 +94,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, override
 
+from immutablepy import Mut
 from mut_check._ansi import BLUE, BOLD, RED, RESET
 from mut_check._diagnostics import Diagnostic
 
@@ -123,7 +124,7 @@ def _flatten_name_targets(target: expr) -> list[Name]:
     if isinstance(target, Name):
         return [target]
     if isinstance(target, Tuple | List):
-        names = []
+        names: Mut[list[Name]] = []
         for elt in target.elts:
             names.extend(_flatten_name_targets(elt))
         return names
@@ -170,7 +171,7 @@ def _relevant_scope_nodes(tree: Module) -> Iterator[_GatingScope]:
 
 def _compute_scope_has_mut(tree: Module) -> set[int]:
     """`id(scope_node)` for every scope with a `Mut` annotation of its own (see `_has_own_mut_annotation`)."""
-    result: set[int] = set()
+    result: Mut[set[int]] = set()
     for scope_node in _relevant_scope_nodes(tree):
         args = None if isinstance(scope_node, Module) else scope_node.args
         if _has_own_mut_annotation(scope_node.body, args):
@@ -200,28 +201,30 @@ def _file_has_any_annotation(tree: Module) -> bool:
 
 class _Scope:
     def __init__(self) -> None:
-        self.permission: dict[str, bool] = {}
-        self.bound: set[str] = set()
+        self.permission: Mut[dict[str, bool]] = {}
+        self.bound: Mut[set[str]] = set()
 
 
 def _param_scope(args: arguments) -> _Scope:
     scope = _Scope()
     for arg in (*args.posonlyargs, *args.args, *args.kwonlyargs):
         is_mut = arg.annotation is not None and _is_mut_annotation(arg.annotation)
-        scope.permission[arg.arg] = is_mut
+        # `.__setitem__` rather than subscript-assignment syntax -- see
+        # docs/decisions.md's "Open `ty` bug: subscript syntax..." section.
+        scope.permission.__setitem__(arg.arg, is_mut)
         scope.bound.add(arg.arg)
     for vararg in (args.vararg, args.kwarg):
         if vararg is not None:
-            scope.permission[vararg.arg] = False
+            scope.permission.__setitem__(vararg.arg, False)  # noqa: FBT003 -- dict value, not a discretionary flag
             scope.bound.add(vararg.arg)
     return scope
 
 
 class _ReassignmentChecker(NodeVisitor):
     def __init__(self, tree: Module) -> None:
-        self.violations: list[tuple[Name, _GatingScope]] = []
+        self.violations: Mut[list[tuple[Name, _GatingScope]]] = []
         self._scope = _Scope()
-        self._scope_stack: list[_Scope] = []
+        self._scope_stack: Mut[list[_Scope]] = []
         self._gating_scope: _GatingScope = tree
 
     def _push_scope(self, scope: _Scope | None = None) -> None:
@@ -298,7 +301,9 @@ class _ReassignmentChecker(NodeVisitor):
     def visit_AnnAssign(self, node: AnnAssign) -> None:
         if isinstance(node.target, Name):
             name = node.target.id
-            self._scope.permission[name] = _is_mut_annotation(node.annotation)
+            # `.__setitem__` rather than subscript-assignment syntax -- see
+            # docs/decisions.md's "Open `ty` bug: subscript syntax..." section.
+            self._scope.permission.__setitem__(name, _is_mut_annotation(node.annotation))
             if node.value is not None:
                 self._check_and_bind(node.target)
         self.generic_visit(node)

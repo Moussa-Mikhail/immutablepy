@@ -27,6 +27,7 @@ proven itself).
 
 import sys
 
+from immutablepy import Mut
 from mut_check import UntypedMode, check
 from mut_check._ansi import strip_ansi
 
@@ -46,7 +47,7 @@ def main() -> int:
     match sys.argv[1:]:
         case ["check", *rest] if rest:
             untyped: UntypedMode = "permissive"
-            paths: list[str] = []
+            paths: Mut[list[str]] = []
             for arg in rest:
                 if arg.startswith("--untyped="):
                     parsed = _parse_untyped_mode(arg.removeprefix("--untyped="))

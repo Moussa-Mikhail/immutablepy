@@ -138,7 +138,7 @@ def _construction_exempt_locations(source: str) -> set[tuple[int, int]]:
     tree = ast.parse(source)
     constructor_names = _BUILTIN_CONSTRUCTORS | {node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
 
-    locations = set()
+    locations: Mut[set[tuple[int, int]]] = set()
     for node in ast.walk(tree):
         if _is_fresh(node, constructor_names):
             locations.add((node.lineno, node.col_offset + 1))
@@ -172,10 +172,15 @@ def filter_construction_exemption(diagnostics: Mut[list[Diagnostic]]) -> Mut[lis
     if not diagnostics:
         return diagnostics
 
-    locations_by_file: _LocationsByFile = {}
+    locations_by_file: Mut[_LocationsByFile] = {}
     for diagnostic in diagnostics:
         file = str(diagnostic.file)
         if file not in locations_by_file:
-            locations_by_file[file] = _construction_exempt_locations(diagnostic.file.read_text())
+            # `.__setitem__` rather than subscript-assignment syntax --
+            # `ty`'s subscript-assignment special form doesn't honor a
+            # `Mut`-gated `self` (see docs/decisions.md's "Open `ty` bug:
+            # subscript syntax..." section); the explicit call is the
+            # confirmed working spelling.
+            locations_by_file.__setitem__(file, _construction_exempt_locations(diagnostic.file.read_text()))
 
     return [d for d in diagnostics if not _is_construction_exempt_false_positive(d, locations_by_file)]
