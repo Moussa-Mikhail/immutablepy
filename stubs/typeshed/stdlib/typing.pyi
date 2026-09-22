@@ -24,6 +24,7 @@ that may be changed without notice. Use at your own risk!
 import collections  # noqa: F401  # pyright: ignore[reportUnusedImport]
 import sys
 import typing_extensions
+from immutablepy import Mut
 from _collections_abc import dict_items, dict_keys, dict_values
 from _typeshed import IdentityFunction, ReadableBuffer, SupportsGetItem, SupportsGetItemViewable, SupportsKeysAndGetItem, Viewable
 from abc import ABCMeta, abstractmethod
@@ -1685,11 +1686,18 @@ class MutableSequence(Sequence[_T]):
     @abstractmethod
     def __delitem__(self, index: slice[int | None], /) -> None: ...
 
+    # Bound to the unparameterized class name, not `Self` -- see `list.S` in
+    # builtins.pyi for why (a confirmed `ty` bug with `Self` inside
+    # `Intersection` on generic classes). `list` inherits `clear`/`reverse`
+    # from here rather than redeclaring them, so this is what makes those
+    # Mut-aware for `list` too.
+    S = TypeVar("S", bound="MutableSequence")
+
     # Mixin methods
     def append(self, value: _T, /) -> None:
         """S.append(value) -- append value to the end of the sequence"""
 
-    def clear(self) -> None:
+    def clear(self: Mut[S]) -> None:
         """S.clear() -> None -- remove all items from S"""
 
     def extend(self, values: Iterable[_T], /) -> None:
@@ -1697,7 +1705,7 @@ class MutableSequence(Sequence[_T]):
         iterable
         """
 
-    def reverse(self) -> None:
+    def reverse(self: Mut[S]) -> None:
         """S.reverse() -- reverse *IN PLACE*"""
 
     def pop(self, index: int = -1, /) -> _T:
@@ -1782,20 +1790,26 @@ class MutableSet(AbstractSet[_T]):
     def discard(self, value: _T, /) -> None:
         """Remove an element.  Do not raise an exception if absent."""
 
+    # Bound to the unparameterized class name, not `Self` -- see `list.S` in
+    # builtins.pyi for why (a confirmed `ty` bug with `Self` inside
+    # `Intersection` on generic classes, reproduced on legacy-generic classes
+    # too, not just PEP 695 ones -- confirmed against `dict`).
+    S = TypeVar("S", bound="MutableSet")
+
     # Mixin methods
-    def clear(self) -> None:
+    def clear(self: Mut[S]) -> None:
         """This is slow (creates N new iterators!) but effective."""
 
-    def pop(self) -> _T:
+    def pop(self: Mut[S]) -> _T:
         """Return the popped value.  Raise KeyError if empty."""
 
-    def remove(self, value: _T, /) -> None:
+    def remove(self: Mut[S], value: _T, /) -> None:
         """Remove an element. If not a member, raise a KeyError."""
 
-    def __ior__(self, it: AbstractSet[_T], /) -> typing_extensions.Self: ...  # type: ignore[override,misc]
-    def __iand__(self, it: AbstractSet[Any], /) -> typing_extensions.Self: ...
-    def __ixor__(self, it: AbstractSet[_T], /) -> typing_extensions.Self: ...  # type: ignore[override,misc]
-    def __isub__(self, it: AbstractSet[Any], /) -> typing_extensions.Self: ...
+    def __ior__(self: Mut[S], it: AbstractSet[_T], /) -> S: ...  # type: ignore[override,misc]
+    def __iand__(self: Mut[S], it: AbstractSet[Any], /) -> S: ...
+    def __ixor__(self: Mut[S], it: AbstractSet[_T], /) -> S: ...  # type: ignore[override,misc]
+    def __isub__(self: Mut[S], it: AbstractSet[Any], /) -> S: ...
 
 class MappingView(Sized):
     __slots__ = ("_mapping",)
@@ -1885,25 +1899,31 @@ class MutableMapping(Mapping[_KT, _VT]):
     __iter__, and __len__.
     """
 
+    # Bound to the unparameterized class name, not `Self` -- see `list.S` in
+    # builtins.pyi for why (a confirmed `ty` bug with `Self` inside
+    # `Intersection` on generic classes, reproduced on legacy-generic classes
+    # too, not just PEP 695 ones -- confirmed against `dict`).
+    S = TypeVar("S", bound="MutableMapping")
+
     @abstractmethod
-    def __setitem__(self, key: _KT, value: _VT, /) -> None: ...
+    def __setitem__(self: Mut[S], key: _KT, value: _VT, /) -> None: ...
     @abstractmethod
-    def __delitem__(self, key: _KT, /) -> None: ...
-    def clear(self) -> None:
+    def __delitem__(self: Mut[S], key: _KT, /) -> None: ...
+    def clear(self: Mut[S]) -> None:
         """D.clear() -> None.  Remove all items from D."""
 
     @overload
-    def pop(self, key: _KT, /) -> _VT:
+    def pop(self: Mut[S], key: _KT, /) -> _VT:
         """D.pop(k[,d]) -> v, remove specified key and return the corresponding
         value.  If key is not found, d is returned if given, otherwise
         KeyError is raised.
         """
     @overload
-    def pop(self, key: _KT, default: _VT, /) -> _VT: ...
+    def pop(self: Mut[S], key: _KT, default: _VT, /) -> _VT: ...
     @overload
-    def pop(self, key: _KT, default: _T, /) -> _VT | _T: ...
+    def pop(self: Mut[S], key: _KT, default: _T, /) -> _VT | _T: ...
 
-    def popitem(self) -> tuple[_KT, _VT]:
+    def popitem(self: Mut[S]) -> tuple[_KT, _VT]:
         """D.popitem() -> (k, v), remove and return some (key, value) pair
         as a 2-tuple; but raise KeyError if D is empty.
         """
@@ -1915,10 +1935,10 @@ class MutableMapping(Mapping[_KT, _VT]):
     # -- collections.ChainMap.setdefault
     # -- weakref.WeakKeyDictionary.setdefault
     @overload
-    def setdefault(self: MutableMapping[_KT, _T | None], key: _KT, default: None = None, /) -> _T | None:
+    def setdefault(self: Mut[MutableMapping[_KT, _T | None]], key: _KT, default: None = None, /) -> _T | None:
         """D.setdefault(k[,d]) -> D.get(k,d), also set D[k]=d if k not in D"""
     @overload
-    def setdefault(self, key: _KT, default: _VT, /) -> _VT: ...
+    def setdefault(self: Mut[S], key: _KT, default: _VT, /) -> _VT: ...
 
     # 'update' used to take a Union, but using overloading is better.
     # The second overloaded type here is a bit too general, because
@@ -1941,7 +1961,7 @@ class MutableMapping(Mapping[_KT, _VT]):
     # -- weakref.WeakValueDictionary.__ior__
     # -- weakref.WeakKeyDictionary.__ior__
     @overload
-    def update(self, m: SupportsKeysAndGetItem[_KT, _VT], /) -> None:
+    def update(self: Mut[S], m: SupportsKeysAndGetItem[_KT, _VT], /) -> None:
         """D.update([E, ]**F) -> None.  Update D from mapping/iterable E and F.
         If E present and has a .keys() method, does:
             for k in E.keys(): D[k] = E[k]
@@ -1951,13 +1971,13 @@ class MutableMapping(Mapping[_KT, _VT]):
             for k, v in F.items(): D[k] = v
         """
     @overload
-    def update(self: SupportsGetItem[str, _VT], m: SupportsKeysAndGetItem[str, _VT], /, **kwargs: _VT) -> None: ...
+    def update(self: Mut[S], m: SupportsKeysAndGetItem[str, _VT], /, **kwargs: _VT) -> None: ...
     @overload
-    def update(self, m: Iterable[tuple[_KT, _VT]], /) -> None: ...
+    def update(self: Mut[S], m: Iterable[tuple[_KT, _VT]], /) -> None: ...
     @overload
-    def update(self: SupportsGetItem[str, _VT], m: Iterable[tuple[str, _VT]], /, **kwargs: _VT) -> None: ...
+    def update(self: Mut[SupportsGetItem[str, _VT]], m: Iterable[tuple[str, _VT]], /, **kwargs: _VT) -> None: ...
     @overload
-    def update(self: SupportsGetItem[str, _VT], /, **kwargs: _VT) -> None: ...
+    def update(self: Mut[SupportsGetItem[str, _VT]], /, **kwargs: _VT) -> None: ...
 
 Text = str
 

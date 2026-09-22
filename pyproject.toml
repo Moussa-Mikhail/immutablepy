@@ -2,9 +2,6 @@
 name = "immutablepy"
 version = "0.1.0"
 requires-python = ">=3.13"
-dependencies = [
-    "ty==0.0.78",
-]
 
 [project.scripts]
 immut = "mut_check.cli:main"
@@ -23,7 +20,7 @@ dev = [
     "pytest>=9.1.1",
     "refurb>=2.3.1",
     "ruff>=0.16.4",
-    "ty>=0.0.74",
+    "ty==0.0.82",
 ]
 
 [tool.ruff]
@@ -58,6 +55,7 @@ exclude = [
     "node_modules",
     "site-packages",
     "venv",
+    "stubs/typeshed"
 ]
 
 [tool.ruff.lint]
@@ -70,22 +68,23 @@ ignore = [
     "D203",
     "D212",
     "TC001",
+    "PYI021",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "src/tests/**" = [
-    "ANN",   # fixtures intentionally exercise loosely-annotated / edge-case signatures
-    "B007",  # fixtures pre-declare a for-loop target to test its type, not its use in the body
-    "C416",  # fixtures exercise comprehension syntax itself, not idiomatic list() calls
+    "ANN", # fixtures intentionally exercise loosely-annotated / edge-case signatures
+    "B007", # fixtures pre-declare a for-loop target to test its type, not its use in the body
+    "C416", # fixtures exercise comprehension syntax itself, not idiomatic list() calls
     "CPY001", # no copyright header required in tests
-    "F841",  # fixtures deliberately exercise unused (re)assignments -- that's what's under test
-    "D",     # tests and fixtures don't need docstrings
+    "F841", # fixtures deliberately exercise unused (re)assignments -- that's what's under test
+    "D", # tests and fixtures don't need docstrings
     "INP001", # tests dir is not a distributed package
     "PLR2004", # exit codes/counts as literals are clearer than named constants here
     "PLW2901", # fixtures deliberately exercise for-loop-variable reassignment
-    "S101",  # assert is how pytest tests assert
-    "S603",  # subprocess calls with a fixed, non-user-controlled argv
-    "T201",  # fixtures use print to exercise ordinary reads, not real diagnostics
+    "S101", # assert is how pytest tests assert
+    "S603", # subprocess calls with a fixed, non-user-controlled argv
+    "T201", # fixtures use print to exercise ordinary reads, not real diagnostics
 ]
 
 [tool.ty]

@@ -15,6 +15,17 @@ substring/regex matching against `Diagnostic.text` -- `_ty._parse` and the
 `_filter`/`_immutable` exemption checks all match on a `strip_ansi`'d copy
 for that reason, while keeping the original colored block for display.
 
+As of `ty` 0.0.82, the header line also carries an OSC 8 terminal hyperlink
+around the diagnostic code (an escape-bracket-8-semicolon-semicolon prefix,
+the URL, then a matching close, wrapping the whole `[code]` token) even
+under `--color=always` capture -- a second escape family, not just SGR color
+codes. Left unstripped, it lands *inside* the `[code]` brackets `_ty._HEADER`
+matches on, so every diagnostic silently failed to parse (confirmed:
+`_ty.run` returned zero diagnostics against a fixture `ty` itself exits
+nonzero on, both directly reproduced and caught by the test suite going
+fully green on fixtures asserting real violations). See `_ANSI_RE`'s pattern
+for the exact escape sequence matched.
+
 `mut_check`'s own diagnostics (`_reassignment`) aren't rendered by `ty` at
 all, so `_reassignment` builds its text with these same color constants
 directly, matching `ty`'s style (bold-red header, bold-blue location/pipe
@@ -24,7 +35,7 @@ of which pass produced a given diagnostic.
 
 import re
 
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m|\x1b\]8;;[^\x1b]*\x1b\\")
 
 RESET = "\x1b[0m"
 BOLD = "\x1b[1m"

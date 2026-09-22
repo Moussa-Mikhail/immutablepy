@@ -79,6 +79,7 @@ from typing import (  # noqa: Y022,UP035
 # we can't import `Literal` from typing or mypy crashes: see #11247
 from typing_extensions import Literal, LiteralString, Self, TypeIs, TypeVarTuple, deprecated, disjoint_base  # noqa: Y023, UP035
 from ty_extensions import Top
+from immutablepy import Mut
 
 if sys.version_info >= (3, 14):
     from _typeshed import AnnotateFunc
@@ -2015,7 +2016,9 @@ class bytearray(MutableSequence[int]):
     @overload
     def __init__(self, string: str, /, encoding: str, errors: str = "strict") -> None: ...
 
-    def append(self, item: SupportsIndex, /) -> None:
+    # `bytearray` has no type parameter, so `Self`-in-`Intersection` (see
+    # `list.S` above) doesn't apply here -- `Mut[Self]` is fine directly.
+    def append(self: Mut[Self], item: SupportsIndex, /) -> None:
         """Append a single item to the end of the bytearray.
 
         item
@@ -2085,7 +2088,7 @@ class bytearray(MutableSequence[int]):
         If tabsize is not given, a tab size of 8 characters is assumed.
         """
 
-    def extend(self, iterable_of_ints: Iterable[SupportsIndex], /) -> None:
+    def extend(self: Mut[Self], iterable_of_ints: Iterable[SupportsIndex], /) -> None:
         """Append all the items from the iterator or sequence to the end of the bytearray.
 
         iterable_of_ints
@@ -2139,7 +2142,7 @@ class bytearray(MutableSequence[int]):
         Raise ValueError if the subsection is not found.
         """
 
-    def insert(self, index: SupportsIndex, item: SupportsIndex, /) -> None:
+    def insert(self: Mut[Self], index: SupportsIndex, item: SupportsIndex, /) -> None:
         """Insert a single item into the bytearray before the given index.
 
         index
@@ -2245,7 +2248,7 @@ class bytearray(MutableSequence[int]):
         of the original bytearray object and two empty bytearray objects.
         """
 
-    def pop(self, index: int = -1, /) -> int:
+    def pop(self: Mut[Self], index: int = -1, /) -> int:
         """Remove and return a single item from B.
 
           index
@@ -2255,7 +2258,7 @@ class bytearray(MutableSequence[int]):
         If no index argument is given, will pop the last item.
         """
 
-    def remove(self, value: int, /) -> None:
+    def remove(self: Mut[Self], value: int, /) -> None:
         """Remove the first occurrence of a value in the bytearray.
 
         value
@@ -2500,19 +2503,19 @@ class bytearray(MutableSequence[int]):
     def __getitem__(self, key: slice[SupportsIndex | None], /) -> bytearray: ...
 
     @overload
-    def __setitem__(self, key: SupportsIndex, value: SupportsIndex, /) -> None:
+    def __setitem__(self: Mut[Self], key: SupportsIndex, value: SupportsIndex, /) -> None:
         """Set self[key] to value."""
     @overload
-    def __setitem__(self, key: slice[SupportsIndex | None], value: Iterable[SupportsIndex] | bytes, /) -> None: ...
+    def __setitem__(self: Mut[Self], key: slice[SupportsIndex | None], value: Iterable[SupportsIndex] | bytes, /) -> None: ...
 
-    def __delitem__(self, key: SupportsIndex | slice[SupportsIndex | None], /) -> None:
+    def __delitem__(self: Mut[Self], key: SupportsIndex | slice[SupportsIndex | None], /) -> None:
         """Delete self[key]."""
 
     def __add__(self, value: ReadableBuffer, /) -> bytearray:
         """Return self+value."""
 
     # The superclass wants us to accept Iterable[int], but that fails at runtime.
-    def __iadd__(self, value: ReadableBuffer, /) -> Self:  # type: ignore[override]
+    def __iadd__(self: Mut[Self], value: ReadableBuffer, /) -> Self:  # type: ignore[override]
         """Implement self+=value."""
 
     def __mul__(self, value: SupportsIndex, /) -> bytearray:
@@ -2521,7 +2524,7 @@ class bytearray(MutableSequence[int]):
     def __rmul__(self, value: SupportsIndex, /) -> bytearray:
         """Return value*self."""
 
-    def __imul__(self, value: SupportsIndex, /) -> Self:
+    def __imul__(self: Mut[Self], value: SupportsIndex, /) -> Self:
         """Implement self*=value."""
 
     def __mod__(self, value: Any, /) -> bytes:
@@ -2970,6 +2973,16 @@ class list(MutableSequence[_T]):
     The argument must be an iterable if specified.
     """
 
+    # `ty` has a confirmed bug where `Self` inside an `Intersection` fails to
+    # substitute the enclosing generic class's type parameter before checking
+    # it against `Self`'s upper bound -- both `Mut[list[int]]` and plain
+    # `list[int]` receivers get incorrectly rejected once the class is
+    # parameterized with anything other than `Unknown`. An explicit
+    # `TypeVar` bound to the unparameterized class name performs the same
+    # "whatever concrete (sub)type called this method" job through the
+    # ordinary constraint solver, which substitutes correctly.
+    S = TypeVar("S", bound="list")
+
     @overload
     def __init__(self) -> None: ...
     @overload
@@ -2978,13 +2991,13 @@ class list(MutableSequence[_T]):
     def copy(self) -> list[_T]:
         """Return a shallow copy of the list."""
 
-    def append(self, object: _T, /) -> None:
+    def append(self: Mut[S], object: _T, /) -> None:
         """Append object to the end of the list."""
 
-    def extend(self, iterable: Iterable[_T], /) -> None:
+    def extend(self: Mut[S], iterable: Iterable[_T], /) -> None:
         """Extend list by appending elements from the iterable."""
 
-    def pop(self, index: SupportsIndex = -1, /) -> _T:
+    def pop(self: Mut[S], index: SupportsIndex = -1, /) -> _T:
         """Remove and return item at index (default last).
 
         Raises IndexError if list is empty or index is out of range.
@@ -3001,10 +3014,10 @@ class list(MutableSequence[_T]):
     def count(self, value: _T, /) -> int:
         """Return number of occurrences of value."""
 
-    def insert(self, index: SupportsIndex, object: _T, /) -> None:
+    def insert(self: Mut[S], index: SupportsIndex, object: _T, /) -> None:
         """Insert object before index."""
 
-    def remove(self, value: _T, /) -> None:
+    def remove(self: Mut[S], value: _T, /) -> None:
         """Remove first occurrence of value.
 
         Raises ValueError if the value is not present.
@@ -3016,7 +3029,7 @@ class list(MutableSequence[_T]):
     # Use list[SupportsRichComparisonT] for the first overload rather than [SupportsRichComparison]
     # to work around invariance
     @overload
-    def sort(self: list[SupportsRichComparisonT], *, key: None = None, reverse: bool = False) -> None:
+    def sort(self: Mut[list[SupportsRichComparisonT]], *, key: None = None, reverse: bool = False) -> None:
         """Sort the list in ascending order and return None.
 
         The sort is in-place (i.e. the list itself is modified) and stable
@@ -3028,7 +3041,7 @@ class list(MutableSequence[_T]):
         The reverse flag can be set to sort in descending order.
         """
     @overload
-    def sort(self, *, key: Callable[[_T], SupportsRichComparison], reverse: bool = False) -> None: ...
+    def sort(self: Mut[S], *, key: Callable[[_T], SupportsRichComparison], reverse: bool = False) -> None: ...
 
     def __len__(self) -> int:
         """Return len(self)."""
@@ -3045,12 +3058,12 @@ class list(MutableSequence[_T]):
     def __getitem__(self, s: slice[SupportsIndex | None], /) -> list[_T]: ...
 
     @overload
-    def __setitem__(self, key: SupportsIndex, value: _T, /) -> None:
+    def __setitem__(self: Mut[S], key: SupportsIndex, value: _T, /) -> None:
         """Set self[key] to value."""
     @overload
-    def __setitem__(self, key: slice[SupportsIndex | None], value: Iterable[_T], /) -> None: ...
+    def __setitem__(self: Mut[S], key: slice[SupportsIndex | None], value: Iterable[_T], /) -> None: ...
 
-    def __delitem__(self, key: SupportsIndex | slice[SupportsIndex | None], /) -> None:
+    def __delitem__(self: Mut[S], key: SupportsIndex | slice[SupportsIndex | None], /) -> None:
         """Delete self[key]."""
 
     # Overloading looks unnecessary, but is needed to work around complex mypy problems
@@ -3060,7 +3073,7 @@ class list(MutableSequence[_T]):
     @overload
     def __add__(self, value: list[_S], /) -> list[_S | _T]: ...
 
-    def __iadd__(self, value: Iterable[_T], /) -> Self:  # type: ignore[misc]
+    def __iadd__(self: Mut[S], value: Iterable[_T], /) -> S:  # type: ignore[misc]
         """Implement self+=value."""
 
     def __mul__(self, value: SupportsIndex, /) -> list[_T]:
@@ -3069,7 +3082,7 @@ class list(MutableSequence[_T]):
     def __rmul__(self, value: SupportsIndex, /) -> list[_T]:
         """Return value*self."""
 
-    def __imul__(self, value: SupportsIndex, /) -> Self:
+    def __imul__(self: Mut[S], value: SupportsIndex, /) -> S:
         """Implement self*=value."""
 
     def __contains__(self, key: object, /) -> bool:
@@ -3098,6 +3111,9 @@ class dict(MutableMapping[_KT, _VT]):
     dict(**kwargs) -> new dictionary initialized with the name=value pairs
         in the keyword argument list.  For example:  dict(one=1, two=2)
     """
+
+    # See `list.S` above -- same `Self`-in-`Intersection` workaround.
+    S = TypeVar("S", bound="dict")
 
     # __init__ should be kept roughly in line with `collections.UserDict.__init__`, which has similar semantics
     # Also multiprocessing.managers.SyncManager.dict()
@@ -3165,16 +3181,16 @@ class dict(MutableMapping[_KT, _VT]):
     def get(self, key: object, default: _T, /) -> _VT | _T: ...
 
     @overload
-    def pop(self, key: _KT, /) -> _VT:
+    def pop(self: Mut[S], key: _KT, /) -> _VT:
         """D.pop(k[,d]) -> v, remove specified key and return the corresponding value.
 
         If the key is not found, return the default if given; otherwise,
         raise a KeyError.
         """
     @overload
-    def pop(self, key: object, default: _VT, /) -> _VT: ...
+    def pop(self: Mut[S], key: object, default: _VT, /) -> _VT: ...
     @overload
-    def pop(self, key: object, default: _T, /) -> _VT | _T: ...
+    def pop(self: Mut[S], key: object, default: _T, /) -> _VT | _T: ...
 
     def __len__(self) -> int:
         """Return len(self)."""
@@ -3182,10 +3198,10 @@ class dict(MutableMapping[_KT, _VT]):
     def __getitem__(self, key: _KT, /) -> _VT:
         """Return self[key]."""
 
-    def __setitem__(self, key: _KT, value: _VT, /) -> None:
+    def __setitem__(self: Mut[S], key: _KT, value: _VT, /) -> None:
         """Set self[key] to value."""
 
-    def __delitem__(self, key: _KT, /) -> None:
+    def __delitem__(self: Mut[S], key: _KT, /) -> None:
         """Delete self[key]."""
 
     def __iter__(self) -> Iterator[_KT]:
@@ -3218,10 +3234,10 @@ class dict(MutableMapping[_KT, _VT]):
 
     # dict.__ior__ should be kept roughly in line with MutableMapping.update()
     @overload  # type: ignore[misc]
-    def __ior__(self, value: SupportsKeysAndGetItem[_KT, _VT], /) -> Self:
+    def __ior__(self: Mut[S], value: SupportsKeysAndGetItem[_KT, _VT], /) -> S:
         """Return self|=value."""
     @overload
-    def __ior__(self, value: Iterable[tuple[_KT, _VT]], /) -> Self: ...
+    def __ior__(self: Mut[S], value: Iterable[tuple[_KT, _VT]], /) -> S: ...
 
 if sys.version_info >= (3, 15):
     @disjoint_base
@@ -3311,12 +3327,15 @@ if sys.version_info >= (3, 15):
 class set(MutableSet[_T]):
     """Build an unordered collection of unique elements."""
 
+    # See `list.S` above -- same `Self`-in-`Intersection` workaround.
+    S = TypeVar("S", bound="set")
+
     @overload
     def __init__(self) -> None: ...
     @overload
     def __init__(self, iterable: Iterable[_T], /) -> None: ...
 
-    def add(self, element: _T, /) -> None:
+    def add(self: Mut[S], element: _T, /) -> None:
         """Add an element to a set.
 
         This has no effect if the element is already present.
@@ -3328,10 +3347,10 @@ class set(MutableSet[_T]):
     def difference(self, *s: Iterable[object]) -> set[_T]:
         """Return a new set with elements in the set that are not in the others."""
 
-    def difference_update(self, *s: Iterable[object]) -> None:
+    def difference_update(self: Mut[S], *s: Iterable[object]) -> None:
         """Update the set, removing elements found in others."""
 
-    def discard(self, element: object, /) -> None:
+    def discard(self: Mut[S], element: object, /) -> None:
         """Remove an element from a set if it is a member.
 
         Unlike set.remove(), the discard() method does not raise
@@ -3341,7 +3360,7 @@ class set(MutableSet[_T]):
     def intersection(self, *s: Iterable[object]) -> set[_T]:
         """Return a new set with elements common to the set and all others."""
 
-    def intersection_update(self, *s: Iterable[object]) -> None:
+    def intersection_update(self: Mut[S], *s: Iterable[object]) -> None:
         """Update the set, keeping only elements found in it and all others."""
 
     def isdisjoint(self, s: Iterable[object], /) -> bool:
@@ -3353,7 +3372,7 @@ class set(MutableSet[_T]):
     def issuperset(self, s: Iterable[object], /) -> bool:
         """Report whether this set contains another set."""
 
-    def remove(self, element: _T, /) -> None:
+    def remove(self: Mut[S], element: _T, /) -> None:
         """Remove an element from a set; it must be a member.
 
         If the element is not a member, raise a KeyError.
@@ -3362,13 +3381,13 @@ class set(MutableSet[_T]):
     def symmetric_difference(self, s: Iterable[_S], /) -> set[_T | _S]:
         """Return a new set with elements in either the set or other but not both."""
 
-    def symmetric_difference_update(self, s: Iterable[_T], /) -> None:
+    def symmetric_difference_update(self: Mut[S], s: Iterable[_T], /) -> None:
         """Update the set, keeping only elements found in either set, but not in both."""
 
     def union(self, *s: Iterable[_S]) -> set[_T | _S]:
         """Return a new set with elements from the set and all others."""
 
-    def update(self, *s: Iterable[_T]) -> None:
+    def update(self: Mut[S], *s: Iterable[_T]) -> None:
         """Update the set, adding elements from all others."""
 
     def __len__(self) -> int:
@@ -3383,25 +3402,25 @@ class set(MutableSet[_T]):
     def __and__(self, value: AbstractSet[object], /) -> set[_T]:
         """Return self&value."""
 
-    def __iand__(self, value: AbstractSet[object], /) -> Self:
+    def __iand__(self: Mut[S], value: AbstractSet[object], /) -> S:
         """Return self&=value."""
 
     def __or__(self, value: AbstractSet[_S], /) -> set[_T | _S]:
         """Return self|value."""
 
-    def __ior__(self, value: AbstractSet[_T], /) -> Self:  # type: ignore[override,misc]
+    def __ior__(self: Mut[S], value: AbstractSet[_T], /) -> S:  # type: ignore[override,misc]
         """Return self|=value."""
 
     def __sub__(self, value: AbstractSet[object], /) -> set[_T]:
         """Return self-value."""
 
-    def __isub__(self, value: AbstractSet[object], /) -> Self:
+    def __isub__(self: Mut[S], value: AbstractSet[object], /) -> S:
         """Return self-=value."""
 
     def __xor__(self, value: AbstractSet[_S], /) -> set[_T | _S]:
         """Return self^value."""
 
-    def __ixor__(self, value: AbstractSet[_T], /) -> Self:  # type: ignore[override,misc]
+    def __ixor__(self: Mut[S], value: AbstractSet[_T], /) -> S:  # type: ignore[override,misc]
         """Return self^=value."""
 
     def __le__(self, value: AbstractSet[object], /) -> bool: ...
