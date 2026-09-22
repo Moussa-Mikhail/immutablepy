@@ -18,11 +18,19 @@ would be making a speculative bet on the user's behalf.
 
 ## No type defaults to `Mut`, ever
 
-`list`/`dict`/`set`: rejected (habit, not signal). `MutableSequence`/`MutableMapping`/
-`MutableSet`: also rejected — counterexample: `s = o.mutset` where `o` isn't `Mut`. The
-type carries no memory of origin, so defaulting by type alone leaks permission through
-the transitivity boundary. `Mutable*` ABCs remain the recommended spelling over concrete
-types, just always explicitly `Mut`-wrapped.
+`list`/`dict`/`set`: rejected (habit, not signal) -- stays rejected, see "Concrete
+container types excluded" below.
+
+`MutableSequence`/`MutableMapping`/`MutableSet`: originally also rejected on the same
+counterexample -- `s = o.mutset` where `o` isn't `Mut` -- reasoning that the type
+carries no memory of origin, so defaulting by type alone leaks permission through the
+transitivity boundary. **Superseded** -- see "Field-permission default for `Mutable*`
+fields" below: the counterexample only holds if the field's own declared type is the
+sole gate. Paired with read-side attenuation through the access path, the leak this
+was rejecting doesn't reoccur, because the gate moves from "trust the field's static
+type" to "trust the path used to reach it" -- the same shift transitivity already
+makes for every other reachability question in this system. `Mutable*` ABCs remain the
+recommended spelling over concrete types either way.
 
 ## Transitivity of `Mut` — kept, no override
 
@@ -62,6 +70,49 @@ cost is avoided entirely.
   (runs after class body evaluation; checkers don't execute decorators).
 - **Construction exemption**: escape, not method name, governs. The escape check is
   bounded and single-object, not general aliasing — but not yet designed.
+
+## Open design: field-permission default for `Mutable*` fields, gated by read attenuation
+
+Not yet designed or built -- both pieces below have to land together, in this order of
+dependency, or the older leak this reopens comes right back. Confirmation trail: none
+yet, this is a design proposal, not a built/tested behavior.
+
+**The two pieces, and why they're coupled:**
+
+1. **Read-side attenuation** (the actually new mechanism; nothing today computes this):
+   `type_of(o.field)` is not just `field`'s declared type -- it's attenuated by `o`'s
+   own `Mut`-ness. Concretely: `type_of(o.field) = declared_type if o is Mut[...] else
+   strip_outer_mut(declared_type)`. This is the write-side rule ("Write requires both
+   field permission and caller permission" in CLAUDE.md's "Methods and per-field
+   mutability") applied symmetrically to reads -- the caller-permission half of that
+   check is already unavoidable machinery for field *writes*; this reuses it for field
+   *reads* instead of leaving reads ungated. Only the *outer* `Mut` is attenuated --
+   nested type-parameter `Mut`s (the "container mutability is compositional" case,
+   `Mut[list[Mut[User]]]` vs `Mut[list[User]]`) are untouched by this and stay exactly
+   as explicit as they are today. Without this piece, defaulting field-permission (2)
+   is unconditionally unsound -- it's the same leak `s = o.mutset` was originally
+   rejected for, just relocated from "the field's static type is trusted alone" to
+   "the field's static type is trusted alone, and now the default makes that type say
+   yes more often." Scope note: presumably applies symmetrically to a method returning
+   `self.field` un-`Mut`-wrapped, attenuated by the method's own receiver -- same
+   reasoning, not yet confirmed against a fixture.
+
+2. **Field-permission default, `Mutable*` ABCs only.** With (1) in place, a field typed
+   `MutableSequence[X]`/`MutableMapping[K, V]`/`MutableSet[X]` (no explicit outer `Mut`)
+   defaults to Mut-capable -- reachable through it is exactly what (1) already gates by
+   the access path, so the field's own declared type no longer needs to *also* carry
+   that bit. Rationale for restricting this to the ABCs, not extending it to concrete
+   `list`/`dict`/`set`/`bytearray` field types: choosing `MutableSequence` over
+   `Sequence` (its exact non-mutating sibling) is a binary, already-made choice with no
+   other reason to prefer one name over the other -- real signal, not "habit, not
+   signal" the way bare `list` is (no meaningfully different concrete type says "this
+   one's read-only"). A field that's genuinely meant to be permanently locked, even
+   through a fully-`Mut` receiver, spells that by choosing the non-mutating protocol
+   (`Sequence`) in the first place -- the field-permission axis from CLAUDE.md's
+   per-field rule doesn't disappear, it's just now spelled by the type-family choice
+   itself instead of by a separate `Mut` wrapper on top of it, for this one family of
+   types. Concrete container field types are explicitly excluded from this default and
+   keep requiring an explicit outer `Mut` wrapper, same as today.
 
 ## Implementation architecture
 
@@ -332,6 +383,63 @@ Not yet built. The AST-filter alternative (recognizing `list.append`-style calls
 construction-exemption cases in `mut_check._filter`) remains a viable fallback that
 avoids tracking typeshed at all — worth weighing against this once someone actually
 implements either.
+
+## Open `ty` bug: subscript syntax doesn't honor `Mut[S]` on `__getitem__`/`__setitem__`
+
+**Confirmed on `ty` 0.0.82.** Two distinct `ty` bugs were found while vendoring the
+patched typeshed fork's `list` stub, both around `self`-typed dunders under our
+`Intersection`-based `Mut` encoding:
+
+1. **`Self` inside `Intersection` doesn't substitute** (already fixed in the stub,
+   see its own comment above `list`'s `S = TypeVar("S", bound="list")`): any method
+   declared `self: Mut[Self]` on a parameterized `list[_T]` gets rejected for both
+   `Mut[list[int]]` and plain `list[int]` receivers. Worked around project-wide by
+   using an explicit `self: Mut[S]` (`S` bound to the unparameterized class) instead
+   of `Self`, which the ordinary constraint solver substitutes correctly. Applied to
+   `append`/`extend`/`pop`/`insert`/`remove`/`sort`/`__delitem__`/`__iadd__`, and
+   `__setitem__`'s first overload (which had been missed in the initial pass — its
+   `self: Mut[Self]` reproduced the same false rejection reported as "list[0] = 1
+   errors" from another session; fixed the same way).
+
+2. **Subscript syntax sugar bypasses `Mut`-intersection self-typing entirely —
+   separate from bug 1, and still open, no workaround found.** Even after fixing
+   `__setitem__` to `self: Mut[S]`, `xs[0] = 1` on a genuinely `Mut[list[int]]`
+   receiver (parameter or `Mut`-declared local) is still rejected:
+   `invalid-assignment`, "Invalid subscript assignment ... on object of type
+   `list[int]`", with an info line correctly showing "The full type of the
+   subscripted object is `Mut[list[int]]`" — `ty` prints the right type and rejects
+   it anyway. Calling the same method explicitly, `xs.__setitem__(0, 1)`, type-checks
+   clean on the identical receiver, confirming the stub signature itself is correct
+   and the bug is specifically in how `ty`'s subscript-assignment special form
+   resolves overloads against an `Intersection` self type, not in the method
+   signature.
+
+   Tested the read side too, deliberately, as a probe (not a real fix candidate —
+   `__getitem__` shouldn't require `Mut` for a read at all, and the stub was
+   reverted after testing): adding `self: Mut[S]` to `__getitem__`'s overloads makes
+   `x: int = xs[0]` fail on *both* `Mut[list[int]]` and plain `list[int]` receivers,
+   with a different, worse error — `Method __getitem__ of type Overload[]` — `ty`
+   can't resolve an overload at all, rather than degrading to a self-type mismatch
+   like `__setitem__` does. Confirms the same root cause (subscript-form overload
+   resolution vs. `Mut`-gated `self`) hits both the get and set directions.
+
+   Also tried spelling `self` as the raw `Intersection[S, MutMarker]` instead of the
+   `Mut[S]` alias, in case the alias indirection itself was the problem -- no change.
+   `reveal_type` confirms it resolves to the identical effective type (`list[int] &
+   MutMarker`), and the explicit-call form still works either way; `xs[0] = 1` still
+   fails identically. Rules out the alias as a factor -- confirmed the bug is in
+   `ty`'s subscript-assignment special-casing itself, not in how the intersection
+   type is spelled.
+
+   **Net effect**: `xs[0] = 1` cannot currently be made to type-check under our
+   backend no matter how the stub is written, for a receiver that should legitimately
+   permit it. Blocks the natural syntax for indexed mutation entirely; the only
+   working spelling is the explicit dunder call, which isn't viable as real guidance.
+   No `mut_check` custom-pass workaround attempted yet (would need to special-case
+   subscript-assignment nodes the way `_filter`/`_immutable` special-case other `ty`
+   false positives) — flagged here as a design gap, not yet added to CLAUDE.md's
+   "Open" list pending a decision on whether to work around it or wait on upstream
+   `ty`.
 
 ## Untyped-code handling — how the modes were chosen
 

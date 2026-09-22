@@ -139,3 +139,7 @@ CLI-only today: `immut check --untyped=<mode>`. No config-file support yet
   `untyped` mode, on top of today's CLI-only flag.
 - Augmented assignment (`total += i`) on a *mutable* type with a custom `__iadd__`
   returning a fresh, unmarked value: open gap, no fixture yet.
+- Field-read attenuation (`type_of(o.field)` gated by `o`'s own `Mut`-ness) plus a
+  paired field-permission default for `Mutable*`-typed fields specifically: proposed,
+  not designed or built. The two must land together — see decisions.md's "Open
+  design: field-permission default for `Mutable*` fields, gated by read attenuation".
