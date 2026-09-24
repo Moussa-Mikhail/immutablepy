@@ -384,83 +384,165 @@ construction-exemption cases in `mut_check._filter`) remains a viable fallback t
 avoids tracking typeshed at all — worth weighing against this once someone actually
 implements either.
 
+## Open `ty` bug: `Self` doesn't substitute through a generic type alias
+
+**Confirmed on `ty` 0.0.82.** Originally found and framed as "`Self` inside
+`Intersection` doesn't substitute" while vendoring the patched typeshed fork's
+`list` stub — **that framing turned out to be wrong, or at least too narrow**, per a
+later, more careful isolation (see the "Narrower root cause" subsection below). Kept
+here under its corrected name.
+
+**Original symptom, already fixed in our stubs**, see the comment above `list`'s
+`S = TypeVar("S", bound="list")`: any method declared `self: Mut[Self]` on a
+parameterized `list[_T]` gets rejected for both `Mut[list[int]]` and plain
+`list[int]` receivers. Worked around project-wide by using an explicit
+`self: Mut[S]` (`S` bound to the unparameterized class) instead of `Self`, which the
+ordinary constraint solver substitutes correctly. Applied to
+`append`/`extend`/`pop`/`insert`/`remove`/`sort`/`__delitem__`/`__iadd__`, and
+`__setitem__`'s first overload (which had been missed in the initial pass — its
+`self: Mut[Self]` reproduced the same false rejection reported as "list[0] = 1
+errors" from another session; fixed the same way).
+
+### Narrower root cause (confirmed after the fact, isolating one variable at a time)
+
+Minimal reproduction, no `Intersection`, no `ty_extensions` import, nothing project-
+specific — just `Self` through the identity alias:
+
+```python
+from typing import Self
+
+type Mut[T] = T
+
+class Box[T]:
+    def mutate(self: Mut[Self], value: T) -> None:
+        pass
+
+def f(b: Mut[Box[int]]) -> None:
+    b.mutate(1)  # rejected -- should be accepted (Mut[T] = T, so this is just self: Self)
+```
+
+```
+error[invalid-argument-type]: Argument to bound method `Box.mutate` is incorrect
+ --> repro.py:9:5
+  |
+9 |     b.mutate(1)
+  |     ^^^^^^^^^^^ Argument type `Box[int]` does not satisfy upper bound `Box[T@Box]` of type variable `Self`
+
+Found 1 diagnostic
+```
+
+So it was never about `Intersection` — it's `Self`, used as the argument to *any*
+PEP 695 generic type alias, applied to a *generic* class. `self: Self` directly (no
+alias) on the same `Box[T]` is completely clean; `self: Intersection[Self, Marker]`
+written inline (no alias) is also completely clean. Isolated one variable at a time:
+
+- **Not about `Intersection` specifically** — the identity alias (`type Mut[T] = T`)
+  reproduces it identically, no marker/intersection involved at all.
+- **Not about the private, `Intersection`-based backend** — reproduces under plain
+  `ty check` against the *public*, transparent `Mut[T] = T` alias real users' own
+  checkers see, confirmed via `run_checker` (see `test_ty_rejects_mut_self_on_generic_class`
+  in `test_ty_bugs.py`).
+- **`reveal_type(self)` inside the method body shows `Self@mutate` (unresolved)** —
+  not `Box[T@Box]`. The call-site diagnostic's "upper bound `Box[T@Box]`" is also
+  itself unspecialized (`T@Box`, not `int`, despite the call being against
+  `Box[int]`) — so it's not just that `Self` fails to pick up whatever `Mut` adds;
+  the bound being checked against isn't even substituted with the call's own type
+  arguments in the first place.
+- **The alias mechanism itself only half-works, independent of `Self`**: `ty` only
+  ever resolves `Intersection` through a `type`-statement (PEP 695) alias at all —
+  confirmed a legacy alias (bare `TypeVar`-based assignment, or explicitly annotated
+  `X: TypeAlias = Intersection[...]`) resolves to `@Todo` (`ty`'s own "not
+  implemented" placeholder) unconditionally, regardless of genericity, `Self`, or
+  what concrete type is plugged in (`Mut[int]`, `Mut[SomeNonGenericClass]`, even a
+  fully non-generic alias definition with no subscripting at all — all `@Todo`).
+  Since PEP 695 is the *only* alias form that resolves `Intersection` in the first
+  place, there's no alias-style choice that sidesteps the `Self` bug; `type Mut[T]
+  = Intersection[T, MutMarker]` isn't one option among several, it's the only one
+  that works at all.
+- **Defining a per-class alias in the class body is a dead end, and a worse one**:
+  `type MutSelf = Mut[Self]` inside `class Box[T]:` hits a *different*, harder error
+  first — `ty` rejects `Self` inside any type alias outright
+  (`error[invalid-type-form]: Self cannot be used in a type alias`) — and the
+  fallback isn't neutral: `MutSelf` degrades to `Unknown & Marker`, and `Unknown`
+  accepts anything, so it stops discriminating "is this actually a `Box`" at all,
+  not just "is `T` right." Strictly less sound than the original bug, not a
+  workaround.
+
+**No workaround found for the `Self`-in-generic-alias case beyond what's already in
+the stub** (`self: Mut[S]`, `S` a bound `TypeVar`, instead of `Self`) — that
+continues to be correct and necessary, not something this later investigation
+changes.
+
+**Test coverage gap this exposed**: none of this project's own hand-written `Self`-
+gating fixtures (`mut_self_mypy_bug.py`, `mut_check_self_requires_mut_*.py`) ever
+used a generic class — all of them use the same non-generic `Counter` — so this bug
+was invisible to the test suite entirely until the stdlib container stubs (the only
+place a generic class + `Mut[Self]`/`Mut[S]` combination was actually exercised)
+surfaced it. `test_ty_bugs.py`'s `test_ty_rejects_mut_self_on_generic_class` (public
+alias, plain `ty check`) and `test_ty_still_rejects_self_in_intersection_on_mut_receiver`
+(private backend) now pin both shapes directly.
+
 ## Open `ty` bug: subscript syntax doesn't honor `Mut[S]` on `__getitem__`/`__setitem__`
 
-**Confirmed on `ty` 0.0.82.** Two distinct `ty` bugs were found while vendoring the
-patched typeshed fork's `list` stub, both around `self`-typed dunders under our
-`Intersection`-based `Mut` encoding:
+**Confirmed on `ty` 0.0.82**, found alongside the bug above while vendoring the
+patched typeshed fork's `list` stub — a separate bug, unrelated to `Self`
+substitution. Even after fixing `__setitem__` to `self: Mut[S]`, `xs[0] = 1` on a
+genuinely `Mut[list[int]]` receiver (parameter or `Mut`-declared local) is still
+rejected: `invalid-assignment`, "Invalid subscript assignment ... on object of type
+`list[int]`", with an info line correctly showing "The full type of the subscripted
+object is `Mut[list[int]]`" — `ty` prints the right type and rejects it anyway.
+Calling the same method explicitly, `xs.__setitem__(0, 1)`, type-checks clean on the
+identical receiver, confirming the stub signature itself is correct and the bug is
+specifically in how `ty`'s subscript-assignment special form resolves overloads
+against an `Intersection` self type, not in the method signature.
 
-1. **`Self` inside `Intersection` doesn't substitute** (already fixed in the stub,
-   see its own comment above `list`'s `S = TypeVar("S", bound="list")`): any method
-   declared `self: Mut[Self]` on a parameterized `list[_T]` gets rejected for both
-   `Mut[list[int]]` and plain `list[int]` receivers. Worked around project-wide by
-   using an explicit `self: Mut[S]` (`S` bound to the unparameterized class) instead
-   of `Self`, which the ordinary constraint solver substitutes correctly. Applied to
-   `append`/`extend`/`pop`/`insert`/`remove`/`sort`/`__delitem__`/`__iadd__`, and
-   `__setitem__`'s first overload (which had been missed in the initial pass — its
-   `self: Mut[Self]` reproduced the same false rejection reported as "list[0] = 1
-   errors" from another session; fixed the same way).
+Tested the read side too, deliberately, as a probe (not a real fix candidate —
+`__getitem__` shouldn't require `Mut` for a read at all, and the stub was reverted
+after testing): adding `self: Mut[S]` to `__getitem__`'s overloads makes
+`x: int = xs[0]` fail on *both* `Mut[list[int]]` and plain `list[int]` receivers,
+with a different, worse error — `Method __getitem__ of type Overload[]` — `ty` can't
+resolve an overload at all, rather than degrading to a self-type mismatch like
+`__setitem__` does. Confirms the same root cause (subscript-form overload
+resolution vs. `Mut`-gated `self`) hits both the get and set directions.
 
-2. **Subscript syntax sugar bypasses `Mut`-intersection self-typing entirely —
-   separate from bug 1, and still open, no workaround found.** Even after fixing
-   `__setitem__` to `self: Mut[S]`, `xs[0] = 1` on a genuinely `Mut[list[int]]`
-   receiver (parameter or `Mut`-declared local) is still rejected:
-   `invalid-assignment`, "Invalid subscript assignment ... on object of type
-   `list[int]`", with an info line correctly showing "The full type of the
-   subscripted object is `Mut[list[int]]`" — `ty` prints the right type and rejects
-   it anyway. Calling the same method explicitly, `xs.__setitem__(0, 1)`, type-checks
-   clean on the identical receiver, confirming the stub signature itself is correct
-   and the bug is specifically in how `ty`'s subscript-assignment special form
-   resolves overloads against an `Intersection` self type, not in the method
-   signature.
+Also tried spelling `self` as the raw `Intersection[S, MutMarker]` instead of the
+`Mut[S]` alias, in case the alias indirection itself was the problem -- no change.
+`reveal_type` confirms it resolves to the identical effective type (`list[int] &
+MutMarker`), and the explicit-call form still works either way; `xs[0] = 1` still
+fails identically. Rules out the alias as a factor -- confirmed the bug is in
+`ty`'s subscript-assignment special-casing itself, not in how the intersection
+type is spelled.
 
-   Tested the read side too, deliberately, as a probe (not a real fix candidate —
-   `__getitem__` shouldn't require `Mut` for a read at all, and the stub was
-   reverted after testing): adding `self: Mut[S]` to `__getitem__`'s overloads makes
-   `x: int = xs[0]` fail on *both* `Mut[list[int]]` and plain `list[int]` receivers,
-   with a different, worse error — `Method __getitem__ of type Overload[]` — `ty`
-   can't resolve an overload at all, rather than degrading to a self-type mismatch
-   like `__setitem__` does. Confirms the same root cause (subscript-form overload
-   resolution vs. `Mut`-gated `self`) hits both the get and set directions.
+**Net effect**: `xs[0] = 1` cannot currently be made to type-check under our
+backend no matter how the stub is written, for a receiver that should legitimately
+permit it. Blocks the natural syntax for indexed mutation entirely; the only
+working spelling is the explicit dunder call, which isn't viable as real guidance.
 
-   Also tried spelling `self` as the raw `Intersection[S, MutMarker]` instead of the
-   `Mut[S]` alias, in case the alias indirection itself was the problem -- no change.
-   `reveal_type` confirms it resolves to the identical effective type (`list[int] &
-   MutMarker`), and the explicit-call form still works either way; `xs[0] = 1` still
-   fails identically. Rules out the alias as a factor -- confirmed the bug is in
-   `ty`'s subscript-assignment special-casing itself, not in how the intersection
-   type is spelled.
-
-   **Net effect**: `xs[0] = 1` cannot currently be made to type-check under our
-   backend no matter how the stub is written, for a receiver that should legitimately
-   permit it. Blocks the natural syntax for indexed mutation entirely; the only
-   working spelling is the explicit dunder call, which isn't viable as real guidance.
-
-   **A `mut_check`-layer suppression (like `_filter`/`_immutable`'s) was tried and
-   reverted -- confirmed unsound, not just incomplete.** The idea: key off `ty`'s own
-   confirming info line, "The full type of the subscripted object is `Mut[...]`"
-   (present, confirmed, only when the receiver's declared type actually includes
-   `Mut` -- a plain, correctly-rejected receiver never produces it, checked directly
-   including through an attribute chain). That line only speaks to the *receiver's*
-   permission, though, and `ty`'s subscript-assignment resolution turns out to be
-   broken wholesale once the receiver carries `MutMarker` -- it doesn't get far enough
-   to validate the *assigned value* at all in that case, so a genuinely bad assignment
-   produces the exact same diagnostic shape as the false positive. Confirmed three
-   ways, escalating: `l[0] = user` where `l: Mut[list[Mut[User]]]` and `user: User`
-   (plain -- should reject on the *element* not carrying `Mut`, per "container
-   mutability is compositional") got silently swept up alongside the legitimate
-   `l[0] = mut_user` case; then, worse, `xs[0] = "wrong type"` where
-   `xs: Mut[list[int]]` -- an ordinary, `Mut`-unrelated type mismatch with nothing to
-   do with permissions at all -- also vanished. Suppressing on this signal doesn't
-   distinguish "only rejected because of the bug" from "correctly rejected" because
-   `ty` itself can't reach that determination once this path is taken; there is no
-   textual signal in the diagnostic to recover it from after the fact. Reverted
-   in full (the `mut_check._subscript` module, its wiring, and the fixtures/tests
-   that went with it) rather than shipped in a narrower, still-unsound form.
-   Explicit dunder calls remain the only sound spelling for subscript-assignment on
-   a `Mut`-typed receiver until `ty` fixes this upstream -- not added to CLAUDE.md's
-   "Open" list as actionable, since there's no known-safe next step, only "wait on
-   upstream `ty`."
+**A `mut_check`-layer suppression (like `_filter`/`_immutable`'s) was tried and
+reverted -- confirmed unsound, not just incomplete.** The idea: key off `ty`'s own
+confirming info line, "The full type of the subscripted object is `Mut[...]`"
+(present, confirmed, only when the receiver's declared type actually includes
+`Mut` -- a plain, correctly-rejected receiver never produces it, checked directly
+including through an attribute chain). That line only speaks to the *receiver's*
+permission, though, and `ty`'s subscript-assignment resolution turns out to be
+broken wholesale once the receiver carries `MutMarker` -- it doesn't get far enough
+to validate the *assigned value* at all in that case, so a genuinely bad assignment
+produces the exact same diagnostic shape as the false positive. Confirmed three
+ways, escalating: `l[0] = user` where `l: Mut[list[Mut[User]]]` and `user: User`
+(plain -- should reject on the *element* not carrying `Mut`, per "container
+mutability is compositional") got silently swept up alongside the legitimate
+`l[0] = mut_user` case; then, worse, `xs[0] = "wrong type"` where
+`xs: Mut[list[int]]` -- an ordinary, `Mut`-unrelated type mismatch with nothing to
+do with permissions at all -- also vanished. Suppressing on this signal doesn't
+distinguish "only rejected because of the bug" from "correctly rejected" because
+`ty` itself can't reach that determination once this path is taken; there is no
+textual signal in the diagnostic to recover it from after the fact. Reverted
+in full (the `mut_check._subscript` module, its wiring, and the fixtures/tests
+that went with it) rather than shipped in a narrower, still-unsound form.
+Explicit dunder calls remain the only sound spelling for subscript-assignment on
+a `Mut`-typed receiver until `ty` fixes this upstream -- not added to CLAUDE.md's
+"Open" list as actionable, since there's no known-safe next step, only "wait on
+upstream `ty`."
 
 ## Untyped-code handling — how the modes were chosen
 
