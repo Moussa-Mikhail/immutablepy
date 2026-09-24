@@ -59,11 +59,13 @@ cost is avoided entirely.
 ## Methods and per-field mutability
 
 - **`Mut[Self]`** is the default way to mark mutating methods. mypy hard-errors on this
-  (bug report filed; bare `self: Self` is accepted, wrapping `Self` in *any* generic
-  alias triggers it — confirmed with a plain PEP 695 `type X[T] = T` alias, not just
-  `Annotated`; judged a mypy bug, not a real constraint). For mypy users: `@mut`
-  decorator (recommended), per-line `# type: ignore[misc]`, project-wide `misc`
-  suppression (not recommended), or a different checker.
+  (bug report filed for `Annotated[Self, ...]` specifically — not for the plain PEP
+  695 `type X[T] = T` alias case, e.g. `Mut[Self]` itself; that one's confirmed as
+  the same underlying issue but not independently reported. Bare `self: Self` is
+  accepted, wrapping `Self` in *any* generic alias triggers it either way — judged a
+  mypy bug, not a real constraint). For mypy users: `@mut` decorator (recommended),
+  per-line `# type: ignore[misc]`, project-wide `misc` suppression (not
+  recommended), or a different checker.
 - **Implicit inference** (from method body) rejected — contradicts "no defaults, ever."
   **Hand-rolled bound `TypeVar`** works on ty+mypy but needs one declaration per class
   for no benefit over `@mut`. Class decorator to inject it automatically is a dead end
