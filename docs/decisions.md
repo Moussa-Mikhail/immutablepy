@@ -386,9 +386,39 @@ construction-exemption cases in `mut_check._filter`) remains a viable fallback t
 avoids tracking typeshed at all — worth weighing against this once someone actually
 implements either.
 
-## Open `ty` bug: `Self` doesn't substitute through a generic type alias
+## `ty` bug: `Self` doesn't substitute through a generic type alias (fixed upstream, unreleased)
 
-**Confirmed on `ty` 0.0.82.** Originally found and framed as "`Self` inside
+**Status (checked 2026-09-25):** fixed on `ty`'s main branch by astral-sh/ruff#28890
+(commit `162c08c`, "Specialize Self bounds through generic type aliases", fixes
+astral-sh/ty#4592), but **not in a release yet** -- the latest release at the time,
+0.0.84, still reproduces it, as does this project's pinned 0.0.82. Verified by building
+`ty` from source at `162c08c`: the minimal repro below passes, bare `self: Self` still
+passes, a genuine argument error is still reported, and the `Intersection`-based `Mut`
+gates correctly (`Mut` receiver accepted, plain receiver rejected). Nothing needs to
+change here until a release includes it. The `Mut[S]` stub workaround stays in place
+and remains correct either way. When a release ships the fix: bump the dev pin,
+expect `test_ty_rejects_mut_self_on_generic_class` and
+`test_ty_still_rejects_self_in_intersection_on_mut_receiver` (`test_ty_bugs.py`) to
+start failing -- that's their job -- then flip or remove them. Reverting the workaround
+back to `Mut[Self]` would then be *possible* but has no benefit.
+
+**Mechanism** (traced through `ty`'s source and confirmed with debug output from a
+from-source build, not just inferred from behavior). A bound method call passes the
+receiver as a synthetic first argument, so `Self`'s declared upper bound matters
+during inference. For a bare `self: Self`, accessing the method on `Box[int]` rewrites
+that bound from `Box[T@Box]` to `Box[int]` (via `possibly_apply_to_self` in
+`typevar.rs`) -- but only when the mapping being applied carries
+`specialize_self_domain = true`. For `Mut[Self]`, the mapping reaches the alias's
+stored arguments through `Specialization::apply_specialization_impl`
+(`generics.rs`), which rebuilt the mapping with that flag hardcoded to `false`, so
+`Self` kept the unspecialized bound `Box[T@Box]` and `Box[int]` failed the check
+against it. Upstream's fix adds a `specialize_self_domain` parameter to that function
+and passes the flag through from the alias arm in `type_alias.rs`. Same one-line idea
+as the candidate patch worked out independently here, but changing the existing
+function's signature instead of adding a parallel helper -- the shape a maintainer
+would (and did) prefer.
+
+**Original framing** (kept for the trail). Originally found and framed as "`Self` inside
 `Intersection` doesn't substitute" while vendoring the patched typeshed fork's
 `list` stub — **that framing turned out to be wrong, or at least too narrow**, per a
 later, more careful isolation (see the "Narrower root cause" subsection below). Kept
@@ -485,6 +515,33 @@ alias, plain `ty check`) and `test_ty_still_rejects_self_in_intersection_on_mut_
 (private backend) now pin both shapes directly.
 
 ## Open `ty` bug: subscript syntax doesn't honor `Mut[S]` on `__getitem__`/`__setitem__`
+
+**Status (2026-09-25):** still open. A `ty` developer is reportedly already working on
+a fix (relayed second-hand; no issue or PR link recorded here), and it looks more
+involved than the `Self` bug above -- so nothing to do on this side but wait for a
+release and then re-run `test_ty_still_rejects_subscript_assignment_on_mut_receiver`.
+Still reproduces on `ty` 0.0.84 with a minimal, project-free repro (an `Intersection`
+receiver with an explicit `self: Intersection[Box[T], Marker]` `__setitem__`, called
+via `b[0] = 1`, rejected while `b.__setitem__(0, 1)` is accepted). When it does get
+fixed, re-verify all three cases from the reverted-exemption trail below -- not just the
+one in the pin test -- before reintroducing any `mut_check`-layer handling.
+
+**Likely mechanism (read from `ty`'s source at `85d0b3f`; not instrumented or
+confirmed by a build, unlike the `Self` bug above -- treat as a well-supported
+hypothesis).** `validate_subscript_assignment_impl`
+(`types/infer/builder/subscript.rs`) has its own `Type::Intersection` branch that
+decomposes the receiver into its positive members and recurses on each one alone
+(`object_ty = *element_ty`), OR-ing the results, *before* reaching the generic path that
+calls `infer_and_try_call_dunder`. By then the full intersection is gone, so neither
+`list[int]` alone (no `MutMarker`) nor `MutMarker` alone (no `__setitem__`) can satisfy
+a `self: Mut[S]` receiver. Ordinary calls avoid this because
+`Type::member_lookup_with_policy`'s intersection handling iterates members only to
+*locate* a method while keeping `receiver = this` (the whole intersection) for binding,
+and `del xs[0]` avoids it because it goes through `try_call_dunder_with_policy`, which
+delegates intersections to `IntersectionType`'s own dunder handling -- consistent with
+the empirical finding that `del` is unaffected. No existing `mdtest` covers
+`Intersection` combined with subscript assignment, so nothing pins the decomposition's
+intent.
 
 **Confirmed on `ty` 0.0.82**, found alongside the bug above while vendoring the
 patched typeshed fork's `list` stub — a separate bug, unrelated to `Self`

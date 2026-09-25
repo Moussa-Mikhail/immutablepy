@@ -5,8 +5,10 @@ resolves directly -- not specific to this tool's private, `Intersection`-
 based backend. `mut_self_mypy_bug.py`'s `Counter` is non-generic and
 unaffected; confirmed the class being generic is what triggers this
 (reproduced even with `Mut[T] = T`, no `Intersection` involved at all) -- see
-docs/decisions.md's "Open ty bug: Self doesn't substitute..." section and
-test_ty_bugs.py.
+docs/decisions.md's "`ty` bug: `Self` doesn't substitute through a generic type
+alias (fixed upstream, unreleased)" section and test_ty_bugs.py. Fixed on `ty`'s
+main branch but not yet in a release, so this still passes until a release ships
+it; expect it to start failing then, which is the point of the pin.
 """
 
 from typing import Self
