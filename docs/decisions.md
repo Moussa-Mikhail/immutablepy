@@ -388,19 +388,31 @@ implements either.
 
 ## `ty` bug: `Self` doesn't substitute through a generic type alias (fixed upstream, unreleased)
 
-**Status (checked 2026-09-25):** fixed on `ty`'s main branch by astral-sh/ruff#28890
+**Status (checked 2026-10-01):** fixed on `ty`'s main branch by astral-sh/ruff#28890
 (commit `162c08c`, "Specialize Self bounds through generic type aliases", fixes
 astral-sh/ty#4592), but **not in a release yet** -- the latest release at the time,
 0.0.84, still reproduces it, as does this project's pinned 0.0.82. Verified by building
 `ty` from source at `162c08c`: the minimal repro below passes, bare `self: Self` still
 passes, a genuine argument error is still reported, and the `Intersection`-based `Mut`
-gates correctly (`Mut` receiver accepted, plain receiver rejected). Nothing needs to
-change here until a release includes it. The `Mut[S]` stub workaround stays in place
-and remains correct either way. When a release ships the fix: bump the dev pin,
-expect `test_ty_rejects_mut_self_on_generic_class` and
-`test_ty_still_rejects_self_in_intersection_on_mut_receiver` (`test_ty_bugs.py`) to
-start failing -- that's their job -- then flip or remove them. Reverting the workaround
-back to `Mut[Self]` would then be *possible* but has no benefit.
+gates correctly (`Mut` receiver accepted, plain receiver rejected). The `Mut[S]` stub
+workaround stays in place and remains correct either way -- reverting it back to
+`Mut[Self]` would be possible once a release ships the fix but has no benefit, so it
+hasn't been touched.
+
+`test_ty_rejects_mut_self_on_generic_class` and
+`test_ty_still_rejects_self_in_intersection_on_mut_receiver` (`test_ty_bugs.py`), along
+with the fixtures they pinned (`mut_self_generic_class_ty_bug.py`,
+`mut_check_ty_bug_self_in_intersection.py`), have been **removed** on the
+`external-bug-fixes` branch -- confirmed both fail (bug fixed) against a from-source
+build at `162c08c`, so there's nothing left to pin. That branch also carries a
+machine-local `[tool.uv.sources]` override building `ty` from a local clone of
+astral-sh/ty with its `ruff` submodule checked out at `162c08c`, used to exercise the
+fix locally ahead of a release. Neither change belongs on `main`: the override isn't
+reproducible on another machine, and removing the pin tests before an official release
+exists would make `main`'s own suite silently stop tracking the discrepancy. Once a
+release includes `162c08c` (or later): bump the real pinned dev dependency (currently
+`ty==0.0.82`), drop the `external-bug-fixes` branch's override, and merge just the test
+removal (or redo it fresh against `main`) along with this status update.
 
 **Mechanism** (traced through `ty`'s source and confirmed with debug output from a
 from-source build, not just inferred from behavior). A bound method call passes the
