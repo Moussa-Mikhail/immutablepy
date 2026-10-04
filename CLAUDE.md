@@ -103,9 +103,10 @@ real intersection-typed `Mut`. Remaining gap: unanalyzed third-party/untyped cod
   sites, and a custom pass that owns transitivity/reachability, per-field locks, and
   construction-escape (not type-compatibility concerns `ty` can check).
 - Stdlib/third-party support: only genuinely mutable stdlib types (`list`, `dict`,
-  `set`, `bytearray`, ...) need stubbing, via a `__builtins__.pyi`-style override on
-  `extra-paths`. Whole-class replacement is required (per-method patching doesn't
-  work) — not yet built. AST-filter fallback remains viable.
+  `set`, `bytearray`, ...) need stubbing, via a vendored `stubs/typeshed` fork pointed
+  to by `ty.toml`'s `typeshed` setting (replaces `ty`'s embedded default entirely, not
+  an `extra-paths` overlay), with `Mut`-aware signatures for the mutating methods.
+  AST-filter fallback remains viable.
 
 **Target audience**: developers who prefer functional-style programming and want
 strict static guarantees — stricter than most Python developers will tolerate.

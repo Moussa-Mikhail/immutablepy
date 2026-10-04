@@ -355,33 +355,64 @@ annotation mechanism can reach them from outside, pre or post.
 `int.__add__` was the method used to investigate the mechanism below, but per that
 special case it turns out to need no stub at all, regardless of what it returns.
 
-**The dunder name `__builtins__.pyi` does work**, on `ty` 0.0.79 (currently
-installed) — matching pyright/pyrefly's convention, per
+**Superseded by a vendored `stubs/typeshed` fork.** The `__builtins__.pyi`-override
+approach investigated below turned out not to actually work for the real goal, so the
+project now ships a full typeshed fork at `stubs/typeshed` instead — CLAUDE.md's
+"Implementation architecture" describes the current state. The investigation trail
+below (how `__builtins__.pyi` overrides behave, and the whole-class-replacement
+constraint) stays, since it's what led to vendoring a full fork rather than patching
+just the touched classes in place.
+
+**The dunder name `__builtins__.pyi` only appeared to work, on `ty` 0.0.79 (then
+installed)** — matching pyright/pyrefly's convention, per
 [PR #22021](https://github.com/astral-sh/ruff/pull/22021), it layers custom
 definitions on top of vendored typeshed instead of replacing it. Confirmed with
 non-literal operands (`a: int, b: int; a + b`) — literal operands like `1 + 2` don't
 work as a test, since `ty` constant-folds them to `Literal[3]` without ever
 consulting `int.__add__`'s stub, masking whether an override took effect either way.
-Works through our own intersection mechanism too: `int.__add__` stubbed to return
-`Mut[int]` makes `x: Mut[int] = a + b` type-check clean. It's discovered via
-`extra-paths`, not just the literal project root — confirmed placing it in
-`../stubs/internal` (already on our private `ty`'s `extra-paths`) is picked up
-correctly. A bare attribute-annotation patch attempt (`int.__add__: Callable[[int,
-int], Mut[int]]` at module level, without a full `class int:` block) does *not*
-work — `ty` silently ignores it as a patch target (confirmed via
-`reveal_type(int.__add__)` still showing the real signature); only actual
-`class`/`def` redefinitions are recognized.
+Appeared to work through our own intersection mechanism too: `int.__add__` stubbed to
+return `Mut[int]` made `x: Mut[int] = a + b` type-check clean, in an isolated file that
+only referenced `int.__add__` directly. It's discovered via `extra-paths`, not just the
+literal project root — confirmed placing it in `../stubs/internal` (already on our
+private `ty`'s `extra-paths`) is picked up correctly. A bare attribute-annotation patch
+attempt (`int.__add__: Callable[[int, int], Mut[int]]` at module level, without a full
+`class int:` block) does *not* work — `ty` silently ignores it as a patch target
+(confirmed via `reveal_type(int.__add__)` still showing the real signature); only
+actual `class`/`def` redefinitions are recognized.
 
-**The real catch: whole-class replacement, not per-method patching.** Redeclaring
-`class int:` with only `__add__` silently drops every other member — `bit_length`,
-`__sub__`, `__mul__`, etc. all became `unsupported-operator`/`unresolved-attribute`
-errors in testing. Brand-new top-level names and untouched classes are unaffected, so
-it's additive at the *module* level but replacing at the *class* level. Using this for
-a mutable type like `list`/`dict`/`set` therefore means copying that class's *entire*
-member set from real typeshed once (not the whole stdlib — just the specific classes
-touched), modifying only the signatures that need `Mut`-awareness (e.g. `list.append`
-taking a `Mut`-aware element type when the list itself is `Mut[list[Mut[User]]]`).
-Not yet built. The AST-filter alternative (recognizing `list.append`-style calls as
+**But it doesn't actually override the stdlib's own view of the type.** The override
+only defines a *new*, separate `__builtins__.list` (or `int`, etc.) symbol that the
+project's own files can reference — it doesn't replace what the rest of vendored
+typeshed resolves `list`/`int` to internally. Any stdlib module's stub (or any other
+file not importing our override directly) still resolves to the *original*
+`builtins.list`, unaffected. That makes it useless for the actual goal: making
+`list`/`dict`/`set` uniformly `Mut`-aware everywhere they're referenced, including from
+inside other stdlib stubs that use them (e.g. `collections.abc` stubs referencing
+`list`). This is the real reason the project moved to replacing the whole `typeshed`
+root (`ty.toml`'s `typeshed` setting) instead of layering overrides on top of it — only
+a full replacement guarantees every reference, including the stdlib's own
+cross-references, resolves to the patched definition.
+
+**A second catch, on top of the one above: the new shadow `int` only has what you
+declared on it.** Redeclaring `class int:` with only `__add__` in `__builtins__.pyi`
+doesn't touch the real `int` class at all (per the correction above) — it creates a
+distinct, separate `int` symbol, and *that* symbol only has `__add__`; any other
+member access on it (`bit_length`, `__sub__`, `__mul__`, ...) became
+`unsupported-operator`/`unresolved-attribute` errors in testing, because the shadow
+type genuinely lacks them, not because anything was "dropped" from the original. So
+redeclaring a class this way is additive at the *module* level (new top-level names and
+untouched classes are unaffected) but means defining the shadow class's *entire*
+member set yourself, not just the members you want to change — on top of it still not
+being the type the rest of the stdlib actually resolves to. Using this for a mutable
+type like `list`/`dict`/`set` would therefore mean copying that class's *entire* member
+set from real typeshed into the shadow, modifying only the signatures that need
+`Mut`-awareness (e.g. `list.append` taking a `Mut`-aware element type when the list
+itself is `Mut[list[Mut[User]]]`) — moot anyway, since the shadow type is invisible to
+every other stub that references the real `list`.
+
+Neither approach was pursued to completion, since the shadow-type problem makes
+`__builtins__.pyi` overrides unusable for the real goal regardless. The AST-filter
+alternative (recognizing `list.append`-style calls as
 construction-exemption cases in `mut_check._filter`) remains a viable fallback that
 avoids tracking typeshed at all — worth weighing against this once someone actually
 implements either.
