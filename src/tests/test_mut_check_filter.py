@@ -17,8 +17,8 @@ method calls (`obj.method(...)`; the call's position coincides with the
 *receiver*'s, not a fresh return value -- see
 test_mut_check.py's `test_self_requires_mut_is_rejected_on_plain_receiver`),
 and not to `Mut[` mentions nested under a `└──` structural-mismatch tree
-(see `test_protocol_conformance_catches_mut_mismatch`) -- both confirmed as
-real overreach bugs while building this.
+(see `test_nested_mismatch_is_not_suppressed_as_a_fresh_construction`) -- both
+confirmed as real overreach bugs while building this.
 """
 
 from _checkers import FIXTURES_DIR, diagnostics_text, is_clean
@@ -35,6 +35,8 @@ FRESH_RETURN_VALUE = FIXTURES_DIR / "mut_check_filter_fresh_return_value.py"
 FRESH_CALL_ARGUMENT = FIXTURES_DIR / "mut_check_filter_fresh_call_argument.py"
 BUILTIN_CONSTRUCTOR = FIXTURES_DIR / "mut_check_filter_builtin_constructor.py"
 FUNCTION_CALL_NOT_EXEMPT = FIXTURES_DIR / "mut_check_filter_function_call_not_exempt.py"
+NESTED_MISMATCH = FIXTURES_DIR / "mut_check_filter_nested_mismatch_not_suppressed.py"
+NESTED_MATCH = FIXTURES_DIR / "mut_check_filter_nested_match_is_clean.py"
 
 
 def test_int_literal_satisfies_mut() -> None:
@@ -107,3 +109,25 @@ def test_aliased_assignment_is_not_suppressed() -> None:
 
     assert not is_clean(diagnostics)
     assert "not assignable to `Mut[list[int]]`" in diagnostics_text(diagnostics)
+
+
+def test_nested_mismatch_is_not_suppressed_as_a_fresh_construction() -> None:
+    """The only `Mut[` mention is on a nested `└──` line, at the position of a
+    locally-defined class call -- which looks like a fresh construction, so
+    the filter must ignore nested lines or this real mismatch silently
+    disappears. The text assertions pin the diagnostic shape that premise
+    rests on: if `ty` stops nesting it, this fails and the rule needs a look.
+    """
+    diagnostics = check(NESTED_MISMATCH)
+    text = diagnostics_text(diagnostics)
+
+    assert not is_clean(diagnostics)
+    assert "protocol member `get` is incompatible" in text
+    assert "`list[int]` is not assignable to `Mut[list[int]]`" in text
+
+
+def test_nested_match_is_clean() -> None:
+    """Control: the implementation returns `Mut[list[int]]` like the protocol."""
+    diagnostics = check(NESTED_MATCH)
+
+    assert is_clean(diagnostics), diagnostics_text(diagnostics)

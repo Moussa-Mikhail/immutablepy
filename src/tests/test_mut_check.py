@@ -24,7 +24,6 @@ UNPACKING_WITHOUT_MUT = FIXTURES_DIR / "mut_check_unpacking_without_mut.py"
 PREDECLARED_UNPACKING_MUTABLE = FIXTURES_DIR / "mut_check_predeclared_unpacking_mutable.py"
 CONTAINER_MUTABILITY_OK = FIXTURES_DIR / "mut_check_container_mutability_ok.py"
 CONTAINER_MUTABILITY_BAD = FIXTURES_DIR / "mut_check_container_mutability_bad.py"
-PROTOCOL_CONFORMANCE_BAD = FIXTURES_DIR / "mut_check_protocol_conformance_bad.py"
 SELF_REQUIRES_MUT_OK = FIXTURES_DIR / "mut_check_self_requires_mut_ok.py"
 SELF_REQUIRES_MUT_BAD = FIXTURES_DIR / "mut_check_self_requires_mut_bad.py"
 
@@ -153,20 +152,6 @@ def test_container_mutability_rejects_plain_element_for_deeply_mut_list() -> Non
     assert not is_clean(diagnostics)
     assert MUT_MARKER_EXPLANATION in text
     assert "User & MutMarker" in text
-
-
-def test_protocol_conformance_catches_mut_mismatch() -> None:
-    """A class with a plain field must fail to satisfy a Protocol declaring that
-    field as `Mut` -- native structural conformance checking catches this with
-    zero custom logic, per CLAUDE.md's "resolved by the intersection-type
-    approach" note in the Protocols section.
-    """
-    diagnostics = check(PROTOCOL_CONFORMANCE_BAD)
-    text = diagnostics_text(diagnostics)
-
-    assert not is_clean(diagnostics)
-    assert "not assignable to protocol `HasValue`" in text
-    assert "protocol member `value` is incompatible" in text
 
 
 def test_self_requires_mut_is_accepted_on_mut_receiver() -> None:
