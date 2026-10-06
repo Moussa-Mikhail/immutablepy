@@ -24,13 +24,14 @@ container types excluded" below.
 `MutableSequence`/`MutableMapping`/`MutableSet`: originally also rejected on the same
 counterexample -- `s = o.mutset` where `o` isn't `Mut` -- reasoning that the type
 carries no memory of origin, so defaulting by type alone leaks permission through the
-transitivity boundary. **Superseded** -- see "Field-permission default for `Mutable*`
-fields" below: the counterexample only holds if the field's own declared type is the
-sole gate. Paired with read-side attenuation through the access path, the leak this
-was rejecting doesn't reoccur, because the gate moves from "trust the field's static
-type" to "trust the path used to reach it" -- the same shift transitivity already
-makes for every other reachability question in this system. `Mutable*` ABCs remain the
-recommended spelling over concrete types either way.
+transitivity boundary. **Superseded** -- see "Fields inherit mutability from the owner"
+below (which also supersedes the narrower `Mutable*`-only default proposed in "Open
+design: field-permission default for `Mutable*` fields"): the counterexample only holds
+if the field's own declared type is the sole gate. With the gate moved to the access
+path, the leak this was rejecting doesn't reoccur, because it shifts from "trust the
+field's static type" to "trust the path used to reach it" -- the same shift
+transitivity already makes for every other reachability question in this system.
+`Mutable*` ABCs remain the recommended spelling over concrete types either way.
 
 ## Transitivity of `Mut` — kept, no override
 
@@ -38,7 +39,8 @@ Without transitivity, a permission check at a function boundary is bypassable vi
 attribute chain — the check becomes theater. Cost accepted: permission virality (same
 class as Rust's `&mut` propagation) and no field-scoped grants. A per-field override
 (letting a class cap transitivity) was rejected — Rust's answer to this is
-module-privacy, which Python already has.
+module-privacy, which Python already has. Field locks were a form of exactly this cap;
+see "Fields inherit mutability from the owner" for dropping them.
 
 ## Protocols
 
@@ -49,6 +51,21 @@ approach**: `ty`'s own protocol-conformance checking catches this natively once
 protocol members use real intersection-typed `Mut`. Usage-driven (fires at real call
 sites), not exhaustive N×M. Remaining gap: unanalyzed third-party code — the general
 untyped-code limitation, not Protocol-specific.
+
+**Update (2026-10-06):** with inherited mutability (see "Fields inherit mutability from
+the owner") no field is locked, so the scenario above -- a class locking a field a
+protocol claims is `Mut` -- can no longer arise. Whether a protocol attribute is
+*settable* is Python's own rule, and every checker already enforces it without `Mut`:
+confirmed that `ty`, mypy and pyright all reject both a read-only `@property` and a
+`Final` attribute against a protocol attribute `value: int` (mypy: "expected settable
+variable, got read-only attribute"). `mut_check_protocol_conformance_bad.py` and its
+test (`test_protocol_conformance_catches_mut_mismatch`) pinned `ty`'s `Mut`-tag mismatch,
+no longer a real scenario, and were removed. That test was also the only one exercising
+`mut_check._filter`'s "ignore `Mut[` mentions nested under a `└──` tree" restriction;
+`test_nested_mismatch_is_not_suppressed_as_a_fresh_construction` now pins that instead,
+using a protocol *method* returning `Mut[...]` (a real mismatch with the same nested
+shape, no field mutability involved), with a matching control. Confirmed it fails when
+the restriction is removed.
 
 Note: Python's `Protocol` works with zero textual relationship between class and
 protocol — no import, no inheritance, no reference at all (confirmed against `typing`
@@ -70,10 +87,68 @@ cost is avoided entirely.
   **Hand-rolled bound `TypeVar`** works on ty+mypy but needs one declaration per class
   for no benefit over `@mut`. Class decorator to inject it automatically is a dead end
   (runs after class body evaluation; checkers don't execute decorators).
-- **Construction exemption**: escape, not method name, governs. The escape check is
-  bounded and single-object, not general aliasing — but not yet designed.
+- **Construction writes**: constructors (`__init__`, `__post_init__`, `__new__`,
+  classmethod constructors) need to write the new object's fields. Originally framed as
+  an escape check ("writable while the object hasn't escaped") because fields were
+  locked afterward; with inherited mutability nothing is locked afterward, so the escape
+  check isn't needed -- only a way to grant constructors write permission on `self`
+  (likely an implicit `Mut`). Not yet designed.
+
+## Fields inherit mutability from the owner — no field locks
+
+**Status (2026-10-06):** decided, design only. `CLAUDE.md` and this file are updated,
+the protocol fixture/test and the stale source comments are removed (the `_filter`
+nested-tree rule they pinned has a replacement test); nothing else is built.
+
+**Decision.** Fields have no mutability of their own. Through a `Mut` owner (including
+`self` in a `Mut[Self]`/`@mut` method) a field is writable/mutable; through a read-only
+owner it is read-only. A field annotation needs no outer `Mut` (one is redundant but
+allowed, decided 2026-10-06); `Mut` nested in type
+arguments (`list[Mut[User]]`) stays explicit, exactly as in "Container content
+mutability is compositional". This replaces the earlier rule that a field not declared
+`Mut` is locked after construction, even for `@mut` methods.
+
+**Why drop locks.**
+
+- The only thing a lock added was stopping a class's *own* methods from changing a
+  field. That's author-controlled code, and Python already has enforced spellings for it:
+  `typing.Final` (no rebinding, including from the class's own methods), a read-only
+  `@property`, and immutable/read-only field types (`tuple`, `frozenset`, `Sequence`,
+  `Mapping`) for contents. The "Open design" section below already endorsed the last
+  one as how to say "permanently locked".
+- A lock is a per-field cap on transitivity, which "Transitivity of `Mut`" already
+  rejected, on the argument that Rust's answer is module privacy. Keeping locks was the
+  inconsistent half.
+- Rust doesn't have them either: a `&mut self` method can assign any field of the type;
+  the closest tool is privacy, not a per-field immutability marker.
+- Locks dragged three undesigned pieces behind them -- the lock check itself, the
+  construction-escape check, and the `Mutable*` field-permission default -- each only
+  needed because a field could carry its own permission.
+
+**What's lost.** A lock that survives a fully-`Mut` owner on a field of *mutable* type
+without changing the field's declared type. And the derivation "a type with no `Mut`
+fields is deeply immutable" -- never built; "Immutable types always satisfy `Mut[T]`"
+stays a hand-maintained allowlist either way.
+
+**Field access typing (proposed, not built).** `type_of(o.field)` inherits `o`'s
+`Mut`-ness for the *outer* level: `Mut[declared]` through a `Mut` owner, plain
+`declared` through a read-only one. Nested `Mut` is untouched. This is the same
+attenuation mechanism as piece (1) of the superseded "Open design" section, and it
+closes the same leak (`s = o.mutset` where `o` isn't `Mut`): through a read-only `o`,
+`o.mutset` is read-only, so there's nothing to leak. It no longer needs piece (2), the
+`Mutable*`-only field-permission default -- every field type behaves the same way.
+
+**Follow-ups (not done).**
+
+- Constructor writes: how a constructor gets write permission on its own object
+  (likely an implicit `Mut` on `self`). Replaces the construction-escape check.
 
 ## Open design: field-permission default for `Mutable*` fields, gated by read attenuation
+
+**Superseded (2026-10-06)** by "Fields inherit mutability from the owner" above, which
+makes every field inherit its owner's `Mut`-ness and so needs no field-permission
+default at all. Piece (1) below survives as the "Field access typing" proposal there;
+piece (2) is dropped. Kept as the trail.
 
 Not yet designed or built -- both pieces below have to land together, in this order of
 dependency, or the older leak this reopens comes right back. Confirmation trail: none
@@ -193,8 +268,8 @@ assignable to \`Mut[`) when the info line is missing, covering augmented assignm
 custom `__iadd__` returning a fresh, unmarked value) remains an open gap — no fixture
 exercises it yet.
 
-The custom pass still owns: transitivity/reachability, per-field `Mut` locks, and the
-construction-escape check — these aren't type-compatibility questions. Its first piece
+The custom pass still owns: transitivity/reachability, attribute writes through a `Mut`
+owner, and constructor writes — these aren't type-compatibility questions. Its first piece
 now exists (`mut_check._reassignment`): plain-local/parameter reassignment without
 `Mut` — see "Locals require `Mut` for reassignment" below.
 
@@ -209,7 +284,7 @@ since there's nothing else to mutate.
 **Enforced by `mut_check._reassignment`** (`ty` has no notion of this at all — confirmed
 directly, it reports nothing for `for i in range(5): i += 1` with no `Mut` anywhere).
 Applies to locals and parameters, `ast.Name` targets only (attribute writes are a
-separate, not-yet-designed rule — per-field locks/construction escape). A local's first
+separate, not-yet-designed rule — a write requires `Mut` on the owner). A local's first
 real assignment is always free, establishing it as non-`Mut` by default unless already
 declared otherwise; every assignment after that (plain or augmented — augmented always
 presupposes an existing value) needs `Mut`. Parameters have no free first assignment,
@@ -670,8 +745,8 @@ For the only custom pass that exists today (`_reassignment`), `"ignored"` and
 annotations trivially means zero `Mut` annotations, so the per-scope gate already
 empties it out on its own. The two modes only diverge in whether the file's AST is
 walked at all, not in what's reported — a real distinction once a future custom pass
-exists whose behavior differs for "typed but `Mut`-less" vs. "no types at all" (e.g. a
-per-field lock check might reasonably still want to inspect a typed-but-`Mut`-less
+exists whose behavior differs for "typed but `Mut`-less" vs. "no types at all" (e.g. an
+attribute-write check might reasonably still want to inspect a typed-but-`Mut`-less
 class even where `"permissive"` would otherwise skip it).
 
 Config-file support (`../pyproject.toml`/`ty.toml`-style) is deliberately deferred until

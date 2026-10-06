@@ -10,8 +10,8 @@ diagnostics. This module is the first piece of the not-yet-built custom
 pass (per CLAUDE.md's "Open" items): its diagnostics don't come from `ty`.
 
 Scoped to `Name` targets only -- `self.attr = x` is an `Attribute`
-target, a separate, not-yet-designed rule (per-field locks/construction
-escape), not this one.
+target, a separate, not-yet-designed rule (a write requires `Mut` on the
+owner), not this one.
 
 Gated by CLAUDE.md's "Incremental adoption" ratchet: a function/module scope
 with zero `Mut` annotations of its own is skipped entirely by default (mode

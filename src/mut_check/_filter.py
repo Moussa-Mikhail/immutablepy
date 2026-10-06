@@ -73,8 +73,7 @@ The message check runs against an ANSI-stripped copy of the text (`ty` is
 invoked with `--color=always`, per `_ansi`'s docstring, and its color codes
 land inside the literal message, not just around it) and only searches
 lines *not* nested under a `└──` tree marker. Confirmed this matters too: a class with a plain field failing to
-satisfy a `Mut`-declaring `Protocol` (see CLAUDE.md's "Protocols" section)
-produces a diagnostic whose *only* `Mut[` mention is three levels deep in
+satisfy a `Mut`-declaring `Protocol` produces a diagnostic whose *only* `Mut[` mention is three levels deep in
 such a tree (`Locked` incompatible with `HasValue` because member `value`
 isn't `Mut`) -- a structural field-type mismatch that has nothing to do
 with freshness, wrongly matched before this restriction (the outer call

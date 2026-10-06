@@ -17,8 +17,11 @@ re-litigate something already settled.
 - Single axis: `Mut[T] <: T`. No finer sub-permission tiers.
 - `Mut` is transitive: required to mutate anything reachable at any depth, no per-field
   override, no field-scoped grants.
-- No type defaults to `Mut` — not `list`/`dict`/`set`, not `Mutable*` ABCs. Always
-  explicit.
+- Fields inherit mutability from their owner: through a `Mut` owner (including `self` in
+  a `Mut[Self]`/`@mut` method) a field is writable/mutable; through a read-only owner it
+  is read-only. There are no locked fields.
+- No *type* defaults to `Mut` — not `list`/`dict`/`set`, not `Mutable*` ABCs. Always
+  explicit on locals, parameters and returns; a field's mutability comes from its owner.
 
 ## Rules
 
@@ -27,8 +30,8 @@ Unannotated local `T` is read-only; reassignment (plain or augmented) requires `
 on the declaration. A local's *first* real assignment is always free. Parameters have
 no free first assignment. `for`/`with`/unpacking target bindings establish/preserve
 status but a subsequent reassignment inside the body is checked. Enforced by
-`mut_check._reassignment`, `ast.Name` targets only — attribute writes are separate
-(per-field locks / construction escape, not yet designed).
+`mut_check._reassignment`, `ast.Name` targets only — attribute writes are a separate,
+not-yet-designed rule (a write requires `Mut` on the owner).
 
 ### Immutable types always satisfy `Mut[T]`
 Any value of an immutable type — `int`, `str`, `bytes`, `float`, `bool`, `complex`,
@@ -78,18 +81,25 @@ Rust's `&mut Vec<&T>` vs `&mut Vec<&mut T>`.
 - `Mut[Self]` marks mutating methods. For mypy (which hard-errors on this): use the
   `@mut` decorator, not per-line/project-wide suppression.
 - No implicit inference of mutability from method bodies — ever.
-- A field not declared `Mut` is locked after construction, even for `@mut` methods.
-  Subsumes `typing.Final`. Write requires both field permission and caller permission.
-- Fields are writable during construction (`__init__`, `__post_init__`, `__new__`,
-  classmethod constructors) while the object hasn't escaped — escape check not yet
-  designed.
-- A type with no `Mut` fields anywhere in its graph is unconditionally, transitively
-  immutable.
+- Fields have no mutability of their own: writing or mutating `o.field` (including
+  `self.field` in a method) requires `Mut` on `o`. A field annotation needs no outer
+  `Mut` (one is redundant but allowed); `Mut` nested in type arguments (`list[Mut[User]]`) stays explicit, per
+  "Container content mutability is compositional".
+- To make a field unchangeable, use what Python already has, enforced by every checker:
+  `typing.Final` (no rebinding, even from the class's own methods), a read-only
+  `@property`, or an immutable/read-only field type (`tuple`, `frozenset`, `Sequence`,
+  `Mapping`). `mut_check` adds no lock of its own.
+- Constructors (`__init__`, `__post_init__`, `__new__`, classmethod constructors) must be
+  able to write the new object's fields — mechanism not yet designed (likely an implicit
+  `Mut` on the object under construction). Nothing is locked afterward, so no escape
+  check is needed.
 
 ### Protocols
-Resolved via the intersection-type approach (see architecture below) — `ty`'s native
-protocol-conformance checking catches `Mut`-tag mismatches once protocol members use
-real intersection-typed `Mut`. Remaining gap: unanalyzed third-party/untyped code.
+No locked fields means no class can disagree with a protocol about a field's
+mutability; whether a protocol attribute is settable is Python's own rule, enforced by
+every checker (a read-only `@property` or `Final` attribute fails a settable protocol
+attribute). Mutation permission comes from the reference (`Mut[P]`), like any type.
+Remaining gap: unanalyzed third-party/untyped code.
 
 ## Implementation architecture (summary)
 
@@ -100,8 +110,8 @@ real intersection-typed `Mut`. Remaining gap: unanalyzed third-party/untyped cod
 - Hybrid enforcement: `ty`'s native `Mut[T] <: T` checking, plus a custom filter
   (`mut_check._filter`, `mut_check._immutable`) that suppresses `ty`'s
   false-positive "plain `T` not assignable to `Mut[T]`" diagnostics at construction
-  sites, and a custom pass that owns transitivity/reachability, per-field locks, and
-  construction-escape (not type-compatibility concerns `ty` can check).
+  sites, and a custom pass that owns transitivity/reachability and constructor writes
+  (not type-compatibility concerns `ty` can check).
 - Stdlib/third-party support: only genuinely mutable stdlib types (`list`, `dict`,
   `set`, `bytearray`, ...) need stubbing, via a vendored `stubs/typeshed` fork pointed
   to by `ty.toml`'s `typeshed` setting (replaces `ty`'s embedded default entirely, not
@@ -133,14 +143,15 @@ CLI-only today: `immut check --untyped=<mode>`. No config-file support yet
 
 ## Open
 
-- Construction-escape check: needs its own design.
+- Constructor writes: how a constructor gets write permission on the object it's
+  building (likely an implicit `Mut` on `self`). Needs design.
 - Full backend integration: architecture decided and validated, not yet built.
 - Stdlib stubs: scope and initial coverage not yet determined.
 - Untyped-code handling config file: `pyproject.toml`/`ty.toml`-style support for the
   `untyped` mode, on top of today's CLI-only flag.
 - Augmented assignment (`total += i`) on a *mutable* type with a custom `__iadd__`
   returning a fresh, unmarked value: open gap, no fixture yet.
-- Field-read attenuation (`type_of(o.field)` gated by `o`'s own `Mut`-ness) plus a
-  paired field-permission default for `Mutable*`-typed fields specifically: proposed,
-  not designed or built. The two must land together — see decisions.md's "Open
-  design: field-permission default for `Mutable*` fields, gated by read attenuation".
+- Field-access typing: `type_of(o.field)` inherits `o`'s `Mut`-ness for the outer level
+  (`Mut[declared]` through a `Mut` owner, plain `declared` through a read-only one),
+  nested `Mut` untouched. Proposed, not designed or built — see decisions.md's "Fields
+  inherit mutability from the owner".
