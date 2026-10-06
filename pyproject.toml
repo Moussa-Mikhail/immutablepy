@@ -96,3 +96,6 @@ all = "error"
 [tool.mypy]
 mypy_path = "src"
 python_version = "3.13"
+
+[tool.pytest.ini_options]
+testpaths = ["src/tests"]
