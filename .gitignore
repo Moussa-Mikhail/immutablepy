@@ -140,3 +140,4 @@ user_presets.toml
 
 # Pycharm
 .idea/
+/investigations/
