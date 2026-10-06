@@ -12,6 +12,8 @@ from mut_check import check
 
 NO_MUT_IN_SCOPE = FIXTURES_DIR / "mut_check_untyped_ratchet_no_mut_in_scope.py"
 FULLY_UNTYPED = FIXTURES_DIR / "mut_check_untyped_fully_untyped_module.py"
+IGNORED_ANNASSIGN_ONLY = FIXTURES_DIR / "mut_check_untyped_ignored_annassign_only.py"
+IGNORED_PARAMETER_ONLY = FIXTURES_DIR / "mut_check_untyped_ignored_parameter_only.py"
 
 CODE = "reassignment-without-mut"
 
@@ -55,3 +57,17 @@ def test_strict_flags_the_fully_untyped_module_too() -> None:
 
     assert not is_clean(diagnostics)
     assert any(d.code == CODE for d in diagnostics)
+
+
+def test_ignored_keeps_a_file_whose_only_annotation_is_an_annassign() -> None:
+    diagnostics = check(IGNORED_ANNASSIGN_ONLY, untyped="ignored")
+
+    assert [d.code for d in diagnostics] == [CODE]
+    assert diagnostics[0].line == 13
+
+
+def test_ignored_keeps_a_file_whose_only_annotations_are_on_parameters() -> None:
+    diagnostics = check(IGNORED_PARAMETER_ONLY, untyped="ignored")
+
+    assert [d.code for d in diagnostics] == [CODE]
+    assert diagnostics[0].line == 11

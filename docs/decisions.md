@@ -223,6 +223,17 @@ assignment). Scoping (function/lambda/class/comprehension) matches real Python r
 `global`/`nonlocal` aren't modeled, so an unmodeled name is never flagged (false
 negatives preferred over false positives for a first pass).
 
+**Known limitation: `*args`/`**kwargs` can never be reassigned.** `_param_scope` hardcodes
+both as non-`Mut`. There's no parameter-level spelling that could change that: an
+annotation on a vararg describes each *element*, not the binding (`*args: Mut[list[int]]`
+is `tuple[Mut[list[int]], ...]` per `ty`, with `args` itself still read-only). The only
+opt-in is redeclaring the name in the body (`args: Mut[tuple[int, ...]] = args`) --
+`mut_check` and `ty` both accept that, but mypy rejects it (`no-redef`) and pyright
+rejects it (`reportRedeclaration`), which breaks the "other checkers see plain code"
+goal. Not weighed when first written (it hadn't come up), and rare enough in practice
+that it's accepted as-is; revisit only if someone actually needs to reassign a vararg.
+Pinned by `test_varargs_try_body_and_post_lambda_reassignment_are_each_flagged`.
+
 ### Immutable types always satisfy `Mut[T]`
 
 A value of an immutable type (`int`, `str`, `bytes`, `float`, `bool`, `complex`,
