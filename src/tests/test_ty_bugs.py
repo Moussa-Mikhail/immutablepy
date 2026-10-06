@@ -8,13 +8,11 @@ test_mut_self_mypy_bug.py for a mypy quirk.
 `test_ty_rejects_mut_self_on_generic_class`, pinning
 mut_check_ty_bug_self_in_intersection.py and mut_self_generic_class_ty_bug.py)
 were retired here: fixed upstream by astral-sh/ruff#28890 (commit `162c08c`),
-confirmed by building `ty` from that commit and seeing both tests fail as
-their docstrings predicted. No release includes the fix yet -- see
-docs/decisions.md's "`ty` bug: `Self` doesn't substitute through a generic
-type alias" section for the full trail and the status to watch for. The
-`Mut[S]` stub workaround (`list.S` etc. in stubs/typeshed/stdlib/builtins.pyi)
-stays regardless; reverting it to `Mut[Self]` would be possible once a
-release ships but has no benefit.
+released in `ty` 0.0.85, where both tests fail as their docstrings
+predicted -- see docs/decisions.md's "`ty` bug: `Self` doesn't substitute
+through a generic type alias" section for the full trail. The `Mut[S]` stub
+workaround (`list.S` etc. in stubs/typeshed/stdlib/builtins.pyi) stays
+regardless; reverting it to `Mut[Self]` would be possible but has no benefit.
 
 Uses `mut_check._ty.run` directly, bypassing `mut_check.check`'s filters --
 this bug has no `mut_check`-layer exemption (a subscript-assignment one was
