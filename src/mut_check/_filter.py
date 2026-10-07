@@ -69,6 +69,14 @@ via `reveal_type`). Real enforcement of "does the iterable's element
 actually carry `Mut`" is a different, not-yet-built question for the custom
 pass, not something this diagnostic ever answered.
 
+An *attribute* target (`self.memo = {}`, `self.memo: Mut[...] = {}`) is exempt
+when the assigned value is fresh, for a positional reason: for a `Name` target
+`ty` points at the value, so the fresh-expression rule above already matches,
+but for an `Attribute` target whose declared type is `Mut[...]` it points at the
+whole target -- so the exemption has to be keyed on the target's position. Only
+plain/annotated assignment, not augmented: a fresh right-hand side of `+=`
+says nothing about whether the `__iadd__` *result* is fresh.
+
 The message check runs against an ANSI-stripped copy of the text (`ty` is
 invoked with `--color=always`, per `_ansi`'s docstring, and its color codes
 land inside the literal message, not just around it) and only searches
@@ -94,7 +102,9 @@ from immutablepy import Mut
 from mut_check._ansi import strip_ansi
 from mut_check._diagnostics import Diagnostic
 
-_MUT_TARGET_MESSAGE = re.compile(r"(?:is not assignable to|[Ee]xpected) `Mut\[")
+# The attribute form ("...assignable to attribute `memo` of type `Mut[...]`") is worded
+# differently from the plain one ("...assignable to `Mut[...]`"), so it needs its own arm.
+_MUT_TARGET_MESSAGE = re.compile(r"(?:is not assignable to(?: attribute `[^`]+` of type)?|[Ee]xpected) `Mut\[")
 _NESTED_TREE_LINE = re.compile(r"└──")
 
 _EXEMPT_CODES = frozenset({"invalid-assignment", "invalid-argument-type", "invalid-return-type"})
@@ -132,7 +142,8 @@ def _construction_exempt_locations(source: str) -> set[tuple[int, int]]:
     Return `(line, col)` (1-indexed) of every construction-exempt position.
 
     Freshly created expressions (anywhere -- assignment, `return`, call
-    argument, ...), and `for`/`with` target names.
+    argument, ...), `for`/`with` target names, and the attribute target of an
+    assignment whose value is fresh.
     """
     tree = ast.parse(source)
     constructor_names = _BUILTIN_CONSTRUCTORS | {node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
@@ -147,6 +158,13 @@ def _construction_exempt_locations(source: str) -> set[tuple[int, int]]:
             for item in node.items:
                 if isinstance(item.optional_vars, ast.Name):
                     locations.add((item.optional_vars.lineno, item.optional_vars.col_offset + 1))
+        elif (
+            isinstance(node, ast.Assign | ast.AnnAssign)
+            and node.value is not None
+            and _is_fresh(node.value, constructor_names)
+        ):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            locations.update((t.lineno, t.col_offset + 1) for t in targets if isinstance(t, ast.Attribute))
     return locations
 
 

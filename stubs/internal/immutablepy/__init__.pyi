@@ -14,10 +14,24 @@ suppresses, since plain values should satisfy `Mut` positions in this system.
 """
 
 from collections.abc import Callable
+from types import FunctionType, MethodType
 
 from ty_extensions import Intersection
 
-class MutMarker: ...
+class MutMarker:
+    # Fields inherit mutability from their owner: attribute access on a
+    # `Mut[T]` (`T & MutMarker`) resolves through this `__getattr__` too, so
+    # `o.field` is `declared & MutMarker` (and plain `declared` on a plain `T`).
+    #
+    # The union is load-bearing. A bound method and a `MutMarker` instance are
+    # disjoint, so a bare `-> MutMarker` collapses every method to `Never` and
+    # silently disables call checking on `Mut` receivers. `MethodType` keeps
+    # instance methods and `FunctionType` keeps static/class methods; both are
+    # `@final`, so they stay disjoint from data attributes and drop out.
+    # `Callable[..., object]` does not work: it leaves a residue on everything.
+    # Side effect: an unknown attribute on a `Mut` owner no longer raises
+    # `unresolved-attribute` here (the plain checkers still do).
+    def __getattr__(self, name: str) -> MutMarker | MethodType | FunctionType: ...
 
 # noinspection type-hints
 type Mut[T] = Intersection[T, MutMarker]
