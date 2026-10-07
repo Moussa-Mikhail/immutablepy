@@ -19,7 +19,9 @@ re-litigate something already settled.
   override, no field-scoped grants.
 - Fields inherit mutability from their owner: through a `Mut` owner (including `self` in
   a `Mut[Self]`/`@mut` method) a field is writable/mutable; through a read-only owner it
-  is read-only. There are no locked fields.
+  is read-only. There are no locked fields. The one explicit exception: a field
+  annotated with an outer `Mut` is always mutable, through any owner (interior
+  mutability — a memo, a counter).
 - No *type* defaults to `Mut` — not `list`/`dict`/`set`, not `Mutable*` ABCs. Always
   explicit on locals, parameters and returns; a field's mutability comes from its owner.
 
@@ -82,8 +84,11 @@ Rust's `&mut Vec<&T>` vs `&mut Vec<&mut T>`.
   `@mut` decorator, not per-line/project-wide suppression.
 - No implicit inference of mutability from method bodies — ever.
 - Fields have no mutability of their own: writing or mutating `o.field` (including
-  `self.field` in a method) requires `Mut` on `o`. A field annotation needs no outer
-  `Mut` (one is redundant but allowed); `Mut` nested in type arguments (`list[Mut[User]]`) stays explicit, per
+  `self.field` in a method) requires `Mut` on `o`. A plain field annotation inherits its
+  owner's mutability. An outer `Mut` on a field annotation is the escape hatch: that
+  field is mutable through *any* owner, even a read-only one (interior state a logically
+  read-only method updates, like a memo or counter), and a plain reference can't be
+  stored in it. `Mut` nested in type arguments (`list[Mut[User]]`) stays explicit, per
   "Container content mutability is compositional".
 - To make a field unchangeable, use what Python already has, enforced by every checker:
   `typing.Final` (no rebinding, even from the class's own methods), a read-only
@@ -95,11 +100,13 @@ Rust's `&mut Vec<&T>` vs `&mut Vec<&mut T>`.
   check is needed.
 
 ### Protocols
-No locked fields means no class can disagree with a protocol about a field's
-mutability; whether a protocol attribute is settable is Python's own rule, enforced by
-every checker (a read-only `@property` or `Final` attribute fails a settable protocol
-attribute). Mutation permission comes from the reference (`Mut[P]`), like any type.
-Remaining gap: unanalyzed third-party/untyped code.
+No locked fields means no class can lock a field a protocol claims is `Mut`; whether
+a protocol attribute is settable is Python's own rule, enforced by every checker (a
+read-only `@property` or `Final` attribute fails a settable protocol attribute). A
+protocol member declared `Mut[...]` means an always-mutable attribute, so a class whose
+field is plain doesn't satisfy it (`ty`'s native check catches that). Otherwise mutation
+permission comes from the reference (`Mut[P]`), like any type. Remaining gap:
+unanalyzed third-party/untyped code.
 
 ## Implementation architecture (summary)
 
@@ -151,7 +158,8 @@ CLI-only today: `immut check --untyped=<mode>`. No config-file support yet
   `untyped` mode, on top of today's CLI-only flag.
 - Augmented assignment (`total += i`) on a *mutable* type with a custom `__iadd__`
   returning a fresh, unmarked value: open gap, no fixture yet.
-- Field-access typing: `type_of(o.field)` inherits `o`'s `Mut`-ness for the outer level
-  (`Mut[declared]` through a `Mut` owner, plain `declared` through a read-only one),
-  nested `Mut` untouched. Proposed, not designed or built — see decisions.md's "Fields
-  inherit mutability from the owner".
+- Attribute writes (`o.field = v`): "requires `Mut` on the owner" is not checked yet
+  (field *reads* are — `MutMarker.__getattr__` makes `o.field` inherit `o`'s `Mut`-ness;
+  see decisions.md's "Fields inherit mutability from the owner"). A write rule must
+  exempt fields annotated with an outer `Mut` (always mutable), so it needs the field's
+  annotation, not just the owner's name.

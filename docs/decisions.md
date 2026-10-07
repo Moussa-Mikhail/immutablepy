@@ -40,7 +40,9 @@ attribute chain — the check becomes theater. Cost accepted: permission viralit
 class as Rust's `&mut` propagation) and no field-scoped grants. A per-field override
 (letting a class cap transitivity) was rejected — Rust's answer to this is
 module-privacy, which Python already has. Field locks were a form of exactly this cap;
-see "Fields inherit mutability from the owner" for dropping them.
+see "Fields inherit mutability from the owner" for dropping them. That section also adds
+the one deliberate exception in the other direction (an outer `Mut` on a field), which
+*uncaps* transitivity for state the class author opts in.
 
 ## Protocols
 
@@ -54,7 +56,10 @@ untyped-code limitation, not Protocol-specific.
 
 **Update (2026-10-06):** with inherited mutability (see "Fields inherit mutability from
 the owner") no field is locked, so the scenario above -- a class locking a field a
-protocol claims is `Mut` -- can no longer arise. Whether a protocol attribute is
+protocol claims is `Mut` -- can no longer arise. (A protocol member declared `Mut[...]`
+now has a meaning of its own, an always-mutable attribute -- see "Escape hatch" -- and
+a class whose field is plain doesn't satisfy it; `ty`'s native check catches that, but
+it isn't the removed fixture's scenario.) Whether a protocol attribute is
 *settable* is Python's own rule, and every checker already enforces it without `Mut`:
 confirmed that `ty`, mypy and pyright all reject both a read-only `@property` and a
 `Final` attribute against a protocol attribute `value: int` (mypy: "expected settable
@@ -96,14 +101,16 @@ cost is avoided entirely.
 
 ## Fields inherit mutability from the owner — no field locks
 
-**Status (2026-10-06):** decided, design only. `CLAUDE.md` and this file are updated,
-the protocol fixture/test and the stale source comments are removed (the `_filter`
-nested-tree rule they pinned has a replacement test); nothing else is built.
+**Status (decided 2026-10-06, updated 2026-10-06):** field *reads* (inheritance) and the
+`Mut`-field escape hatch are implemented and tested. Not built: attribute *write*
+checks and constructor writes (see "Follow-ups"). The old protocol fixture/test and the
+stale source comments are removed (the `_filter` nested-tree rule that fixture pinned
+has a replacement test).
 
 **Decision.** Fields have no mutability of their own. Through a `Mut` owner (including
 `self` in a `Mut[Self]`/`@mut` method) a field is writable/mutable; through a read-only
-owner it is read-only. A field annotation needs no outer `Mut` (one is redundant but
-allowed, decided 2026-10-06); `Mut` nested in type
+owner it is read-only. A plain field annotation carries no mutability of its own; an
+outer `Mut` on a field annotation is the escape hatch below. `Mut` nested in type
 arguments (`list[Mut[User]]`) stays explicit, exactly as in "Container content
 mutability is compositional". This replaces the earlier rule that a field not declared
 `Mut` is locked after construction, even for `@mut` methods.
@@ -130,18 +137,81 @@ without changing the field's declared type. And the derivation "a type with no `
 fields is deeply immutable" -- never built; "Immutable types always satisfy `Mut[T]`"
 stays a hand-maintained allowlist either way.
 
-**Field access typing (proposed, not built).** `type_of(o.field)` inherits `o`'s
-`Mut`-ness for the *outer* level: `Mut[declared]` through a `Mut` owner, plain
+**Field access typing (implemented 2026-10-06, read side only).** `type_of(o.field)` inherits
+`o`'s `Mut`-ness for the *outer* level: `Mut[declared]` through a `Mut` owner, plain
 `declared` through a read-only one. Nested `Mut` is untouched. This is the same
 attenuation mechanism as piece (1) of the superseded "Open design" section, and it
 closes the same leak (`s = o.mutset` where `o` isn't `Mut`): through a read-only `o`,
 `o.mutset` is read-only, so there's nothing to leak. It no longer needs piece (2), the
 `Mutable*`-only field-permission default -- every field type behaves the same way.
 
+*How:* no custom pass, no `ty` change. `MutMarker` in `stubs/internal/immutablepy`
+gets `def __getattr__(self, name: str) -> MutMarker | MethodType | FunctionType`.
+`ty` resolves attributes on an intersection through every element, so on
+`T & MutMarker` an attribute is `declared & MutMarker`; on plain `T` it's untouched.
+Tested by `test_mut_check_field_inheritance.py`; confirmed each test fails under the
+stub variants it guards. Findings from getting there:
+
+- The union is load-bearing. A bound method and a `MutMarker` instance are disjoint,
+  so a bare `-> MutMarker` collapses every method to `Never`, silently disabling call
+  checking on `Mut` receivers (the existing container test caught this). `MethodType`
+  alone keeps instance methods but static/class methods still go to `Never`;
+  `FunctionType` alone breaks instance methods; both are needed. Both are `@final`, so
+  they are disjoint from data attributes and drop out. `Callable[..., object]` fails: it
+  leaves a `& ((...) -> object)` residue on every attribute.
+- A callable-typed field (`cb: Callable[[int], int]`) no longer collapses to `Never`,
+  but its type through a `Mut` owner is a three-branch union. Left as is: rare.
+- Typos: `__getattr__` makes every name resolve on a `Mut` owner, so `u.nmae` raises no
+  `unresolved-attribute` under `immut check`. Accepted -- the user's own checker sees
+  the plain transparent `Mut[T] = T` and still reports it.
+- Writes are only partly covered: `ty` checks `o.field = v` against the *declared* type.
+  For a plain-annotated field, neither a plain owner nor a plain value written through
+  a `Mut` owner is reported. For a `Mut`-annotated field the declared type carries the
+  marker, so a plain reference is rejected (see "Escape hatch").
+
+**Escape hatch: an outer `Mut` on a field annotation (decided 2026-10-06).** A field
+annotated `Mut[...]` is mutable through *any* owner, even a plain one. This reframes what
+had been "redundant but allowed": with field access typing it isn't redundant (the marker
+rides in on the declared type, so it survives a read-only owner) and it isn't harmless,
+so it is made the point instead of being diagnosed or stripped. It is interior
+mutability, as with Rust's `Cell`/`RefCell`/`Mutex`: state a logically read-only method
+updates -- a memo, a counter, a log buffer -- without making the method `Mut[Self]` and
+so infecting every caller.
+
+*Tradeoff:* this is the one deliberate hole in transitivity. A function taking a plain
+`T` can no longer guarantee it can't mutate that class's marked fields. "Transitivity of
+`Mut`" rejected field-level overrides that *cap* transitivity; this *uncaps* it, only
+where the class author opts in on the field's own annotation, so it is greppable (`Mut[`
+on a field) and confined to declared interior state. Transitivity stays the rule; this
+is its single documented exception.
+
+*Behavior* (pinned by `test_mut_check_field_inheritance.py`): a plain-`self` method or a
+plain parameter can mutate such a field; initializing it with a fresh value is accepted
+in both forms (`self.x = {}` and `self.x: Mut[...] = []`); storing a plain reference in
+it is rejected, since that would hand mutation access to something its other holders
+can't mutate. Rebinding through a plain owner follows the same rule (fresh value fine,
+plain reference rejected). Getting there needed two fixes to the construction exemption
+in `mut_check._filter`: `ty` words the attribute form "assignable to attribute `x` of
+type `Mut[...]`", which the old message pattern missed, and it points at the whole
+attribute target rather than the value, so the exemption is also keyed on the target of
+an assignment whose value is fresh (assignment and annotated assignment only -- a fresh
+right-hand side of `+=` says nothing about whether the result is fresh).
+
+*Spelling:* it reuses `Mut`, so on a field it means "always mutable", unlike on a
+parameter, where it means "permission to mutate". Revisit if that reads confusingly.
+
 **Follow-ups (not done).**
 
 - Constructor writes: how a constructor gets write permission on its own object
   (likely an implicit `Mut` on `self`). Replaces the construction-escape check.
+- Attribute writes (`o.field = v`, also augmented): "requires `Mut` on the owner" is
+  unchecked today (see above). Candidate: extend `_reassignment`'s per-scope permission
+  map to `Attribute` targets rooted at a name; `self` is `Mut` when the method has
+  `self: Mut[Self]`/`@mut`, and in constructors. It must exempt fields annotated with an
+  outer `Mut` (always mutable), which needs the field's annotation, not just the owner's
+  name.
+- Subscript writes through a field (`self.memo[key] = 1`) still hit the open `ty`
+  subscript-assignment bug.
 
 ## Open design: field-permission default for `Mutable*` fields, gated by read attenuation
 
